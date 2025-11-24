@@ -1,20 +1,34 @@
 from __future__ import annotations
 
-import os
+import logging
 from typing import Dict, Optional
+
 import requests
-from requests.exceptions import HTTPError, RequestException
+from requests import Session
+from requests.exceptions import HTTPError, RequestException, Timeout
 
 from .config import Product
 
+logger = logging.getLogger(__name__)
+
+
 class PaymentClient:
-    def __init__(self) -> None:
-        self.api_key = os.getenv("ASAAS_API_KEY")
-        self.base_url = os.getenv("ASAAS_BASE_URL", "https://www.asaas.com/api/v3")
-        if not self.api_key:
-            raise ValueError("A variável de ambiente ASAAS_API_KEY não está definida.")
+    """Cliente HTTP simples para criar cobranças ASAAS."""
+
+    def __init__(self, api_key: str, base_url: str) -> None:
+        if not api_key:
+            raise ValueError("Chave ASAAS não configurada.")
+
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.session: Session = requests.Session()
 
     def criar_cobranca(self, produto: Product, chat_id: int) -> Optional[Dict[str, str]]:
+        """Cria uma cobrança PIX no ASAAS.
+
+        Retorna um dicionário com link e QR Code quando disponível ou ``None`` em caso de erro.
+        """
+
         payload = {
             "billingType": "PIX",
             "description": produto.nome,
@@ -24,7 +38,7 @@ class PaymentClient:
                 "name": f"Cliente Telegram {chat_id}",
                 "cpfCnpj": "00000000000",  # Pode ser ajustado para dados reais se disponíveis
                 "email": f"cliente{chat_id}@example.com",  # Exemplo de email dinâmico
-            }
+            },
         }
 
         headers = {
@@ -33,7 +47,7 @@ class PaymentClient:
         }
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.base_url}/payments",
                 json=payload,
                 headers=headers,
@@ -47,6 +61,8 @@ class PaymentClient:
                 "qrCode": data.get("bankSlipUrl"),
                 "qrCodeBase64": data.get("bankSlipBase64"),
             }
-        except (HTTPError, RequestException) as e:
-            print(f"[PaymentClient] Erro ao criar cobrança ASAAS: {e}")
-            return None
+        except Timeout:
+            logger.warning("[PaymentClient] ASAAS demorou para responder (timeout).")
+        except (HTTPError, RequestException) as exc:
+            logger.error("[PaymentClient] Erro ao criar cobrança ASAAS: %s", exc)
+        return None

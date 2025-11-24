@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Dict
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -14,52 +13,74 @@ from telegram.ext import (
     filters,
 )
 
+from .config import Product
 from .payment import PaymentClient
 from .products import PRODUTOS
 
 ESCOLHENDO, CONFIRMANDO = range(2)
 
 
-def _formatar_card(produto_codigo: str) -> InlineKeyboardMarkup:
-    produto = PRODUTOS[produto_codigo]
+def _formatar_card(produto: Product) -> InlineKeyboardMarkup:
+    """Cria o teclado com o botão de compra do produto escolhido."""
+
     botoes = [
-        [InlineKeyboardButton(f"Comprar por R$ {produto.preco:.2f}", callback_data=f"comprar:{produto_codigo}")],
+        [
+            InlineKeyboardButton(
+                f"Comprar por R$ {produto.preco:.2f}", callback_data=f"comprar:{produto.codigo}"
+            )
+        ],
     ]
     return InlineKeyboardMarkup(botoes)
 
 
-async def start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> int:
+def _resposta_boas_vindas(suporte_url: str) -> InlineKeyboardMarkup:
+    botoes = [
+        [InlineKeyboardButton("Ver produtos", callback_data="listar")],
+        [InlineKeyboardButton("Falar com suporte", url=suporte_url)],
+    ]
+    return InlineKeyboardMarkup(botoes)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    suporte_url = context.bot_data.get("suporte_url", "https://t.me/+seu_contato")
     mensagem = (
         "👋 Seja bem-vindo!\n\n"
         "Este bot foi pensado para vendas rápidas e seguras.\n"
         "Escolha um dos planos abaixo para receber o link ou QR Code de pagamento."
     )
-    botoes = [
-        [InlineKeyboardButton("Ver produtos", callback_data="listar")],
-        [InlineKeyboardButton("Falar com suporte", url="https://t.me/+seu_contato")],
-    ]
     if update.message:
-        await update.message.reply_text(mensagem, reply_markup=InlineKeyboardMarkup(botoes))
+        await update.message.reply_text(
+            mensagem, reply_markup=_resposta_boas_vindas(suporte_url)
+        )
     return ESCOLHENDO
+
+
+def _formatar_vitrine() -> str:
+    return "\n\n".join(
+        f"<b>{produto.nome}</b> (R$ {produto.preco:.2f})\n{produto.descricao}\nCódigo: <code>{codigo}</code>"
+        for codigo, produto in PRODUTOS.items()
+    )
 
 
 async def listar_produtos(update: Update, _: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     if query:
         await query.answer()
-        texto = "\n\n".join(
-            f"<b>{produto.nome}</b> (R$ {produto.preco:.2f})\n{produto.descricao}\nCódigo: <code>{codigo}</code>"
-            for codigo, produto in PRODUTOS.items()
-        )
         botoes = [
             [InlineKeyboardButton("Comprar VIP", callback_data="comprar:vip")],
             [InlineKeyboardButton("Comprar Plus", callback_data="comprar:pacote_plus")],
             [InlineKeyboardButton("Comprar Consultoria", callback_data="comprar:consultoria")],
         ]
         await query.edit_message_text(
-            texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.HTML
+            _formatar_vitrine(),
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode=ParseMode.HTML,
         )
     return ESCOLHENDO
+
+
+def _obter_produto(codigo: str) -> Product | None:
+    return PRODUTOS.get(codigo)
 
 
 async def preparar_compra(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -69,12 +90,12 @@ async def preparar_compra(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     await query.answer()
     _, codigo = query.data.split(":", maxsplit=1)
-    if codigo not in PRODUTOS:
+    produto = _obter_produto(codigo)
+    if not produto:
         await query.edit_message_text("❌ Produto não encontrado. Tente novamente.")
         return ESCOLHENDO
 
     context.user_data["produto_codigo"] = codigo
-    produto = PRODUTOS[codigo]
     mensagem = (
         f"Você escolheu <b>{produto.nome}</b> (R$ {produto.preco:.2f}).\n"
         "Confirme para gerar o pagamento via ASAAS."
@@ -98,11 +119,11 @@ async def confirmar_compra(
 
     await query.answer()
     codigo = context.user_data.get("produto_codigo")
-    if not codigo:
+    produto = _obter_produto(codigo) if codigo else None
+    if not produto:
         await query.edit_message_text("❌ Não encontrei o produto escolhido. Recomece.")
         return ESCOLHENDO
 
-    produto = PRODUTOS[codigo]
     await query.edit_message_text("⏳ Gerando pagamento...")
 
     chat_id = query.message.chat_id if query.message else query.from_user.id
@@ -115,13 +136,14 @@ async def confirmar_compra(
         )
         return ESCOLHENDO
 
+    suporte_url = context.bot_data.get("suporte_url", "https://t.me/+seu_contato")
     texto = (
         f"Prontinho!\n\n"
         f"<b>{produto.nome}</b> — R$ {produto.preco:.2f}\n"
         f"Link de pagamento: {dados_pagamento.get('paymentLink', 'Indisponível')}\n\n"
         "Use o QR Code abaixo para pagar pelo app do seu banco ou carteira digital."
     )
-    botoes = [[InlineKeyboardButton("📨 Enviar comprovante", url="https://t.me/+seu_contato")]]
+    botoes = [[InlineKeyboardButton("📨 Enviar comprovante", url=suporte_url)]]
 
     qr_code_base64 = dados_pagamento.get("qrCodeBase64")
     if qr_code_base64 and query.message:
@@ -165,4 +187,14 @@ def build_conversation(payment_client: PaymentClient) -> ConversationHandler:
             CommandHandler("start", start),
             MessageHandler(filters.ALL, fallback),
         ],
+        per_message=True,
+        name="fluxo_vendas",
+        persistent=False,
+        block=False,
     )
+
+
+def registrar_contexto(application, suporte_url: str) -> None:
+    """Armazena valores compartilhados no contexto do bot."""
+
+    application.bot_data["suporte_url"] = suporte_url
