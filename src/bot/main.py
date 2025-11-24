@@ -22,7 +22,7 @@ def build_app(settings: Settings):
     return application
 
 
-def main() -> None:
+async def main() -> None:
     logger.info("Iniciando o bot de vendas...")
     settings = Settings.from_env()
 
@@ -36,4 +36,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
