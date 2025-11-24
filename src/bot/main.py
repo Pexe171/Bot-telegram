@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import asyncio
 
 from telegram.ext import ApplicationBuilder
 
@@ -27,7 +26,7 @@ def main() -> None:
     settings = Settings.from_env()
 
     application = build_app(settings)
-    asyncio.run(application.run_polling())
+    application.run_polling()
 
 
 if __name__ == "__main__":
