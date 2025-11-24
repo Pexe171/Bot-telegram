@@ -7,13 +7,13 @@ from telegram.ext import Application, ApplicationBuilder
 from .config import Settings
 from .handlers import build_conversation
 from .payment import PaymentClient
+from .payment_service_runner import maybe_launch_payment_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def build_app() -> Application:
-    settings = Settings.from_env()
+def build_app(settings: Settings) -> Application:
     payment_client = PaymentClient(settings)
 
     application = ApplicationBuilder().token(settings.telegram_token).build()
@@ -24,8 +24,11 @@ def build_app() -> Application:
 
 def main() -> None:
     logger.info("Iniciando o bot de vendas...")
-    application = build_app()
-    application.run_polling(close_loop=False)
+    settings = Settings.from_env()
+
+    with maybe_launch_payment_service(settings):
+        application = build_app(settings)
+        application.run_polling(close_loop=False)
 
 
 if __name__ == "__main__":
