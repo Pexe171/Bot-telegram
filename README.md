@@ -19,8 +19,9 @@ Bot completo para vender produtos digitais via Telegram com geração de cobran�
    ```env
    TELEGRAM_BOT_TOKEN=sua_chave_do_bot
    ASAAS_API_KEY=sua_chave_da_api_asaas
-   # ASAAS_BASE_URL=https://www.asaas.com/api/v3  # opcional
+   ASAAS_BASE_URL=https://www.asaas.com/api/v3  # opcional, já vem como padrão
    ADMIN_CHAT_IDS=123456789,987654321
+   SUPORTE_URL=https://t.me/seu_usuario  # opcional, personaliza o botão de suporte
    ```
 
 2. Instale dependências do bot:
