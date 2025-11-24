@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from telegram.ext import ApplicationBuilder
@@ -26,7 +27,12 @@ def main() -> None:
     settings = Settings.from_env()
 
     application = build_app(settings)
-    application.run_polling()
+
+    # Cria um event loop explícito para o python-telegram-bot utilizar,
+    # evitando erros em ambientes onde não existe loop ativo por padrão.
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+    application.run_polling(close_loop=True)
 
 
 if __name__ == "__main__":
