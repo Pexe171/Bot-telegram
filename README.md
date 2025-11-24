@@ -35,17 +35,15 @@ Bot completo para vender produtos digitais via Telegram com geração de cobran�
    cd ..
    ```
 
-4. Configure as variáveis do serviço ASAAS antes de iniciá-lo:
+4. Configure as variáveis do serviço ASAAS. O bot agora inicializa o microserviço Node automaticamente;
+   basta garantir que o `npm install` foi executado uma vez. Rode tudo com um único comando:
    ```bash
    export ASAAS_API_KEY=sua_chave_asaas
    export ASAAS_BASE_URL=https://www.asaas.com/api/v3  # opcional
-   npm --prefix payment_service start
-   ```
-
-5. Em outro terminal, rode o bot:
-   ```bash
    python -m src.bot.main
    ```
+
+   Se preferir subir o serviço manualmente, defina `START_PAYMENT_SERVICE=0` e rode `npm --prefix payment_service start` em paralelo.
 
 ## Estrutura do código
 - `src/bot/config.py`: leitura de variáveis de ambiente e modelo de produto.
