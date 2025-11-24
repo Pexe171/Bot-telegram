@@ -27,12 +27,12 @@ async def main() -> None:
     settings = Settings.from_env()
 
     application = build_app(settings)
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    await application.updater.idle()
-    await application.stop()
-    await application.shutdown()
+
+    # Cria um event loop explícito para o python-telegram-bot utilizar,
+    # evitando erros em ambientes onde não existe loop ativo por padrão.
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+    application.run_polling(close_loop=True)
 
 
 if __name__ == "__main__":
