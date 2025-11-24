@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from telegram.ext import ApplicationBuilder
@@ -21,13 +22,18 @@ def build_app(settings: Settings):
     return application
 
 
-def main() -> None:
+async def main() -> None:
     logger.info("Iniciando o bot de vendas...")
     settings = Settings.from_env()
 
     application = build_app(settings)
-    application.run_polling()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    await application.updater.idle()
+    await application.stop()
+    await application.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
