@@ -11,7 +11,7 @@ Bot completo para vender produtos digitais via Telegram com geração de cobran�
 
 ## Requisitos
 - Python 3.11+
-- Node.js 18+
+- Node.js 18+ (necessário apenas se for rodar o microserviço de pagamento localmente)
 - Token de bot do Telegram
 - Chave de API do ASAAS
 
@@ -44,6 +44,7 @@ Bot completo para vender produtos digitais via Telegram com geração de cobran�
    ```
 
    Se preferir subir o serviço manualmente, defina `START_PAYMENT_SERVICE=0` e rode `npm --prefix payment_service start` em paralelo.
+   Caso o `npm` não esteja instalado, o bot ignora a tentativa de iniciar o serviço e continua executando (apenas sem gerar cobranças).
 
 ## Estrutura do código
 - `src/bot/config.py`: leitura de variáveis de ambiente e modelo de produto.

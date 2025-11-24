@@ -28,7 +28,7 @@ def main() -> None:
 
     with maybe_launch_payment_service(settings):
         application = build_app(settings)
-        application.run_polling(close_loop=False)
+        application.run_polling()
 
 
 if __name__ == "__main__":

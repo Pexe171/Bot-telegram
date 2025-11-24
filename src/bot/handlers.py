@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Dict
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler, ConversationHandler, MessageHandler, filters
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
 
 from .payment import PaymentClient
 from .products import PRODUTOS
@@ -20,7 +28,7 @@ def _formatar_card(produto_codigo: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(botoes)
 
 
-def start(update: Update, _: CallbackContext) -> int:
+async def start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> int:
     mensagem = (
         "👋 Seja bem-vindo!\n\n"
         "Este bot foi pensado para vendas rápidas e seguras.\n"
@@ -30,14 +38,15 @@ def start(update: Update, _: CallbackContext) -> int:
         [InlineKeyboardButton("Ver produtos", callback_data="listar")],
         [InlineKeyboardButton("Falar com suporte", url="https://t.me/+seu_contato")],
     ]
-    update.message.reply_text(mensagem, reply_markup=InlineKeyboardMarkup(botoes))
+    if update.message:
+        await update.message.reply_text(mensagem, reply_markup=InlineKeyboardMarkup(botoes))
     return ESCOLHENDO
 
 
-def listar_produtos(update: Update, _: CallbackContext) -> int:
+async def listar_produtos(update: Update, _: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     if query:
-        query.answer()
+        await query.answer()
         texto = "\n\n".join(
             f"<b>{produto.nome}</b> (R$ {produto.preco:.2f})\n{produto.descricao}\nCódigo: <code>{codigo}</code>"
             for codigo, produto in PRODUTOS.items()
@@ -47,19 +56,21 @@ def listar_produtos(update: Update, _: CallbackContext) -> int:
             [InlineKeyboardButton("Comprar Plus", callback_data="comprar:pacote_plus")],
             [InlineKeyboardButton("Comprar Consultoria", callback_data="comprar:consultoria")],
         ]
-        query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.HTML)
+        await query.edit_message_text(
+            texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.HTML
+        )
     return ESCOLHENDO
 
 
-def preparar_compra(update: Update, context: CallbackContext) -> int:
+async def preparar_compra(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     if not query:
         return ESCOLHENDO
 
-    query.answer()
+    await query.answer()
     _, codigo = query.data.split(":", maxsplit=1)
     if codigo not in PRODUTOS:
-        query.edit_message_text("❌ Produto não encontrado. Tente novamente.")
+        await query.edit_message_text("❌ Produto não encontrado. Tente novamente.")
         return ESCOLHENDO
 
     context.user_data["produto_codigo"] = codigo
@@ -72,27 +83,36 @@ def preparar_compra(update: Update, context: CallbackContext) -> int:
         [InlineKeyboardButton("✅ Confirmar", callback_data="confirmar")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="listar")],
     ]
-    query.edit_message_text(mensagem, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.HTML)
+    await query.edit_message_text(
+        mensagem, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.HTML
+    )
     return CONFIRMANDO
 
 
-def confirmar_compra(update: Update, context: CallbackContext, payment_client: PaymentClient) -> int:
+async def confirmar_compra(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, payment_client: PaymentClient
+) -> int:
     query = update.callback_query
     if not query:
         return ESCOLHENDO
 
-    query.answer()
+    await query.answer()
     codigo = context.user_data.get("produto_codigo")
     if not codigo:
-        query.edit_message_text("❌ Não encontrei o produto escolhido. Recomece.")
+        await query.edit_message_text("❌ Não encontrei o produto escolhido. Recomece.")
         return ESCOLHENDO
 
     produto = PRODUTOS[codigo]
-    query.edit_message_text("⏳ Gerando pagamento...")
+    await query.edit_message_text("⏳ Gerando pagamento...")
 
-    dados_pagamento = payment_client.criar_cobranca(produto, query.message.chat_id)
+    chat_id = query.message.chat_id if query.message else query.from_user.id
+    dados_pagamento = await asyncio.to_thread(
+        payment_client.criar_cobranca, produto, chat_id
+    )
     if not dados_pagamento:
-        query.edit_message_text("⚠️ Não consegui gerar o pagamento agora. Tente novamente em instantes.")
+        await query.edit_message_text(
+            "⚠️ Não consegui gerar o pagamento agora. Tente novamente em instantes."
+        )
         return ESCOLHENDO
 
     texto = (
@@ -104,20 +124,31 @@ def confirmar_compra(update: Update, context: CallbackContext, payment_client: P
     botoes = [[InlineKeyboardButton("📨 Enviar comprovante", url="https://t.me/+seu_contato")]]
 
     qr_code_base64 = dados_pagamento.get("qrCodeBase64")
-    if qr_code_base64:
-        query.message.reply_photo(photo=qr_code_base64, caption=texto, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(botoes))
+    if qr_code_base64 and query.message:
+        await query.message.reply_photo(
+            photo=qr_code_base64,
+            caption=texto,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(botoes),
+        )
     else:
-        query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.HTML)
+        await query.edit_message_text(
+            texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.HTML
+        )
 
     return ESCOLHENDO
 
 
-def fallback(update: Update, _: CallbackContext) -> int:
-    update.message.reply_text("Use /start para começar.")
+async def fallback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> int:
+    if update.message:
+        await update.message.reply_text("Use /start para começar.")
     return ESCOLHENDO
 
 
 def build_conversation(payment_client: PaymentClient) -> ConversationHandler:
+    async def _confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        return await confirmar_compra(update, context, payment_client)
+
     return ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -126,7 +157,7 @@ def build_conversation(payment_client: PaymentClient) -> ConversationHandler:
                 CallbackQueryHandler(preparar_compra, pattern=r"^comprar:.*"),
             ],
             CONFIRMANDO: [
-                CallbackQueryHandler(lambda u, c: confirmar_compra(u, c, payment_client), pattern="^confirmar$") ,
+                CallbackQueryHandler(_confirmar, pattern="^confirmar$") ,
                 CallbackQueryHandler(listar_produtos, pattern="^listar$") ,
             ],
         },
