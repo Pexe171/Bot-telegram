@@ -1,70 +1,67 @@
 const { Telegraf, Markup, session } = require('telegraf');
 const { loadSettings } = require('./config');
 const { PaymentClient } = require('./paymentClient');
-const { formatarVitrine, obterProduto } = require('./products');
+const { obterProduto } = require('./products');
+
+const qrCodeRateLimiter = new Map();
 
 function botoesBoasVindas(suporteUrl) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('Ver produtos', 'listar')],
+    [Markup.button.callback('Ver assinatura', 'listar')],
     [Markup.button.url('Falar com suporte', suporteUrl)],
-  ]);
-}
-
-function botoesVitrine() {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('Comprar VIP', 'comprar:vip')],
-    [Markup.button.callback('Comprar Plus', 'comprar:pacote_plus')],
-    [Markup.button.callback('Comprar Consultoria', 'comprar:consultoria')],
   ]);
 }
 
 function botoesConfirmacao() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('✅ Confirmar', 'confirmar')],
-    [Markup.button.callback('🔙 Voltar', 'listar')],
+    [Markup.button.callback('🔙 Voltar', 'start_menu')],
   ]);
 }
 
 async function registrarHandlers(bot, paymentClient, suporteUrl) {
-  bot.start(async (ctx) => {
+  const sendWelcomeMessage = async (ctx, edit = false) => {
     const mensagem = [
       '👋 Seja bem-vindo!',
       '',
       'Este bot foi pensado para vendas rápidas e seguras.',
-      'Escolha um dos planos abaixo para receber o link ou QR Code de pagamento.',
+      'Clique no botão abaixo para ver nossa assinatura e receber o link ou QR Code de pagamento.',
     ].join('\n');
+    const botoes = botoesBoasVindas(suporteUrl);
 
-    await ctx.reply(mensagem, botoesBoasVindas(suporteUrl));
+    if (edit) {
+      await ctx.editMessageText(mensagem, botoes);
+    } else {
+      await ctx.reply(mensagem, botoes);
+    }
+  };
+
+  bot.start(async (ctx) => {
+    await sendWelcomeMessage(ctx);
+  });
+
+  bot.action('start_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    await sendWelcomeMessage(ctx, true);
   });
 
   bot.action('listar', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(formatarVitrine(), {
-      ...botoesVitrine(),
-      parse_mode: 'HTML',
-    });
-  });
-
-  bot.action(/comprar:(.+)/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const codigo = ctx.match[1];
-    const produto = obterProduto(codigo);
+    const produto = obterProduto('assinatura');
 
     if (!produto) {
-      await ctx.editMessageText('❌ Produto não encontrado. Tente novamente.');
+      await ctx.editMessageText('❌ Produto não encontrado. Tente novamente mais tarde.');
       return;
     }
 
+    ctx.session = ctx.session || {};
     ctx.session.produtoCodigo = produto.codigo;
     const mensagem = [
-      `Você escolheu <b>${produto.nome}</b> (R$ ${produto.preco.toFixed(2)}).`,
-      'Confirme para gerar o pagamento via ASAAS.',
+      `Você escolheu ${produto.nome} (R$ ${produto.preco.toFixed(2)}).`,
+      'Deseja gerar o QR code de pagamento?',
     ].join('\n');
 
-    await ctx.editMessageText(mensagem, {
-      ...botoesConfirmacao(),
-      parse_mode: 'HTML',
-    });
+    await ctx.editMessageText(mensagem, botoesConfirmacao());
   });
 
   bot.action('confirmar', async (ctx) => {
@@ -77,40 +74,54 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       return;
     }
 
+    // Rate limiting: 4 QR codes per hour per user
+    const userId = ctx.from.id;
+    const now = Date.now();
+    const userRequests = qrCodeRateLimiter.get(userId) || [];
+    const recentRequests = userRequests.filter(time => now - time < 3600000); // 1 hour
+
+    if (recentRequests.length >= 4) {
+      await ctx.editMessageText('⚠️ Você atingiu o limite de 4 QR codes por hora. Tente novamente mais tarde.');
+      return;
+    }
+
+    recentRequests.push(now);
+    qrCodeRateLimiter.set(userId, recentRequests);
+
     await ctx.editMessageText('⏳ Gerando pagamento...');
 
-    const chatId = ctx.chat?.id ?? ctx.from.id;
-    const dadosPagamento = await paymentClient.criarCobranca(produto, chatId);
+    const dadosPagamento = await paymentClient.criarPagamento(produto, ctx.from);
 
     if (!dadosPagamento) {
       await ctx.editMessageText('⚠️ Não consegui gerar o pagamento agora. Tente novamente em instantes.');
       return;
     }
+    
+    ctx.session.qrCodeId = dadosPagamento.qrCodeId;
 
     const texto = [
-      'Prontinho!\n',
-      `<b>${produto.nome}</b> — R$ ${produto.preco.toFixed(2)}`,
-      `Link de pagamento: ${dadosPagamento.paymentLink ?? 'Indisponível'}`,
-      '',
-      'Use o QR Code abaixo para pagar pelo app do seu banco ou carteira digital.',
+      '🌟 Você selecionou o seguinte plano:',
+      '🎁 Plano: VITALÍCIO + BÔNUS 🎁 + ACESSO BLACK',
+      `💰 Valor: R$${produto.preco.toFixed(2)}`,
+      '💠 Pague via Pix Copia e Cola (ou QR Code em alguns bancos):',
+      `<code>${dadosPagamento.qrCodePix}</code>`,
+      '👆 Toque na chave PIX acima para copiá-la',
+      '‼ Após o pagamento, clique no botão abaixo para verificar o status:',
     ].join('\n');
 
     const botoes = Markup.inlineKeyboard([
-      [Markup.button.url('📨 Enviar comprovante', suporteUrl)],
+      [Markup.button.callback('Verificar status', 'verificar_pagamento')],
+      [Markup.button.callback('🔙 Início', 'start_menu')],
     ]);
 
-    if (dadosPagamento.qrCodeBase64) {
-      await ctx.replyWithPhoto({ source: Buffer.from(dadosPagamento.qrCodeBase64, 'base64') }, {
-        caption: texto,
-        parse_mode: 'HTML',
-        ...botoes,
-      });
-    } else {
-      await ctx.editMessageText(texto, {
-        parse_mode: 'HTML',
-        ...botoes,
-      });
-    }
+    await ctx.editMessageText(texto, {
+      parse_mode: 'HTML',
+      ...botoes,
+    });
+  });
+
+  bot.action('verificar_pagamento', async (ctx) => {
+    await ctx.answerCbQuery('Funcionalidade em desenvolvimento.');
   });
 
   bot.on('message', async (ctx) => {

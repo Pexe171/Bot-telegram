@@ -13,13 +13,17 @@ function ensureEnv(name, fallback) {
 function loadSettings() {
   const telegramToken = ensureEnv('TELEGRAM_BOT_TOKEN');
   const asaasApiKey = ensureEnv('ASAAS_API_KEY');
-  const asaasBaseUrl = ensureEnv('ASAAS_BASE_URL', 'https://www.asaas.com/api/v3');
+  const asaasBaseUrl = ensureEnv('ASAAS_BASE_URL', 'https://api-sandbox.asaas.com');
   const suporteUrl = ensureEnv('SUPORTE_URL', 'https://t.me/+seu_contato');
+
+  // Garante que a URL base da API Asaas termine com /v3 e não tenha barras duplicadas
+  const cleanBaseUrl = asaasBaseUrl.replace(/\/v3$/, '').replace(/\/$/, '');
+  const finalAsaasUrl = `${cleanBaseUrl}/v3`;
 
   return {
     telegramToken,
     asaasApiKey,
-    asaasBaseUrl: asaasBaseUrl.replace(/\/$/, ''),
+    asaasBaseUrl: finalAsaasUrl,
     suporteUrl,
   };
 }

@@ -6,7 +6,10 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "NODE_ENV=development node src/index.js"
+    "dev": "concurrently \"npm run start-backend\" \"npm run start-frontend\"",
+    "start-backend": "node backend/server.js",
+    "start-frontend": "cd frontend && npm start",
+    "start-all": "concurrently \"npm run start-backend\" \"npm run start-frontend\""
   },
   "keywords": [
     "telegram",
@@ -17,9 +20,15 @@
   ],
   "author": "",
   "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
   "dependencies": {
     "axios": "^1.7.7",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "express": "^4.17.1",
+    "sqlite3": "^5.1.7",
     "telegraf": "^4.16.3"
   }
 }

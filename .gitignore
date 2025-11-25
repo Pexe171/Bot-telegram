@@ -40,3 +40,9 @@ pnpm-debug.log*
 # Arquivos de sistema e logs
 .DS_Store
 *.log
+
+# Dependências Node.js na raiz
+node_modules/
+
+# Arquivos de Banco de Dados
+*.db

@@ -55,3 +55,40 @@ Node.js, pensada para ser humanizada e em português.
 ## Aviso sobre conteúdo adulto
 O bot foi pensado para vendas de nicho adulto de forma genérica, sem armazenar ou distribuir conteúdo explícito. Caso adicione
 esse tipo de material, respeite as políticas do Telegram e a legislação vigente.
+
+---
+
+# Painel de Controle (Dashboard)
+
+Este projeto agora inclui um painel de controle web para gerenciar funcionalidades do bot, incluindo mensagens personalizadas, agendamento, promoções, ajustes de preços e visualização de estatísticas.
+
+### Backend da API
+
+O backend usa Node.js com Express e banco SQLite para armazenar dados do bot.
+
+Para iniciar o backend:
+```bash
+node backend/server.js
+```
+
+### Frontend do Painel
+
+O frontend é uma aplicação React com tema escuro, para gerenciar o bot via interface web.
+
+Para iniciar o frontend:
+```bash
+cd frontend
+npm install
+npm start
+```
+
+> É necessário que o backend (porta 4000) e o frontend (porta 3000) estejam rodando para o painel funcionar corretamente.
+
+### Uso
+
+- O painel permite visualizar usuários, criar e agendar mensagens personalizadas, gerenciar promoções e preços, além de monitorar estatísticas do bot.
+- A integração com o bot se dá via API backend, que o bot pode utilizar para leitura e escrita dos dados necessários.
+
+### Desenvolvimento
+
+Para desenvolvimento, recomenda-se rodar bot, backend e frontend separadamente conforme descrito acima.
