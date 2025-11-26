@@ -292,6 +292,43 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       await ctx.reply('⚠️ Você não tem permissão para usar esse comando.');
       return;
     }
+  });
+
+  // New command /msg for admin to send multi-line message with photo
+  bot.command('msg', async (ctx) => {
+    const adminId = 5764516358;
+    if (ctx.from.id !== adminId) {
+      await ctx.reply('⚠️ Você não tem permissão para usar esse comando.');
+      return;
+    }
+
+    // Remove the command prefix from the message text to get content body
+    const mensagemComando = ctx.message.text;
+    const textoMensagem = mensagemComando.replace(/^\/msg\s+/, '').trim();
+
+    // If there's no additional text, prompt the admin to send with caption or photo
+    if (!textoMensagem && !ctx.message.photo) {
+      await ctx.reply('Por favor, envie a mensagem após o comando /msg, podendo conter texto com quebras de linha e/ou foto.');
+      return;
+    }
+
+    try {
+      const chatId = ctx.chat.id;
+
+      // If message has photo(s), send photo with caption
+      if (ctx.message.photo && ctx.message.photo.length > 0) {
+        // Use the highest resolution photo
+        const photo = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+        await ctx.telegram.sendPhoto(chatId, photo, { caption: textoMensagem, parse_mode: 'HTML' });
+      } else {
+        // Only text message
+        await ctx.telegram.sendMessage(chatId, textoMensagem, { parse_mode: 'HTML' });
+      }
+    } catch (error) {
+      console.error('Erro ao enviar mensagem com /msg:', error);
+      await ctx.reply('❌ Erro ao enviar a mensagem. Tente novamente.');
+    }
+  });
 
     const mensagemPromocional = `🚨 ÚLTIMA CHANCE 🚨
 📦 +20 MILHÕES de vídeos +60 MIL MODELOS REAIS
