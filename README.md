@@ -43,10 +43,15 @@ Node.js, pensada para ser humanizada e em português.
 - `src/storage.js`: persistência da mensagem inicial personalizada e das métricas básicas de uso.
 
 ## Comandos administrativos
-- `/msg <texto>`: envia comunicados apenas para os administradores listados em `ADMIN_IDS`. Suporta envio de foto ou vídeo
-  anexados ao comando, mantendo quebras de linha do texto.
-- `/trocar_inicio <texto>`: altera a mensagem inicial exibida no `/start`. Aceita texto simples ou mídia (foto/vídeo) com
-  legenda; o conteúdo fica salvo em `data/bot-state.json` para ser reaproveitado nos próximos inícios.
+- `/msg <texto>`: comunicados internos só para administradores listados em `ADMIN_IDS`. Obriga ao menos 10 caracteres no
+  texto e aceita foto/vídeo anexados mantendo quebras de linha.
+- `/trocar_inicio <texto>`: altera a mensagem inicial do `/start` com texto (mínimo 10 caracteres) e, opcionalmente,
+  foto ou vídeo. O conteúdo fica salvo em `data/bot-state.json` e pode ser atualizado a qualquer momento.
+- `/promocao`: inicia um fluxo guiado que pergunta a mensagem da oferta (mínimo 10 caracteres, com suporte a foto/vídeo)
+  e depois o valor promocional. Ao finalizar, o bot dispara a campanha para todos os usuários que já conversaram em DM,
+  incluindo botões de compra e suporte.
+- `/testar`: checklist rápido para validar se o bot está online, quantos admins estão configurados e se há usuários
+  registrados.
 - `/metricas`: mostra para administradores quantos usuários únicos já conversaram em DM e o total de mensagens recebidas.
 
 ## Fluxo de compra
