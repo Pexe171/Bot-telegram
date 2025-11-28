@@ -48,7 +48,8 @@ db.serialize(() => {
     FOREIGN KEY(userId) REFERENCES users(id)
   )`);
 
-// Add other tables for promotions, pricing, analytics as needed
+
+  // Add other tables for promotions, pricing, analytics as needed
 });
 
 // --- Telegram Bot Setup ---
