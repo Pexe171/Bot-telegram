@@ -219,14 +219,14 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
     }
 
     // Query all users who have interacted with the bot
-    db.all('SELECT telegramId FROM users', async (err, rows) => {
-      if (err) {
-        console.error('Erro ao buscar usuários no banco de dados:', err);
-        await ctx.editMessageText('❌ Erro ao buscar usuários no banco de dados.');
-        return;
-      }
+      db.all('SELECT telegramId FROM users', async (err, rows) => {
+        if (err) {
+          console.error('Erro ao buscar usuários no banco de dados:', err);
+          await ctx.editMessageText('❌ Erro ao buscar usuários no banco de dados.');
+          return;
+        }
 
-      const mensagemPromocional = `🚨 ÚLTIMA CHANCE 🚨
+        const mensagemPromocional = `🚨 ÚLTIMA CHANCE 🚨
 📦 +20 MILHÕES de vídeos +60 MIL MODELOS REAIS
 ❌ Vai continuar pagando caro e tomando no seco?
 ✅ Um pagamento +15 GRUPOS VIP LIBERADOS
@@ -237,30 +237,30 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
 💥 30% OFF HOJE — SE NÃO CLICAR, FODEU
 👇 CLICA AGORA E MERGULHA NA PUTARIA 👇`;
 
-      const produto = obterProduto('assinatura');
-      if (!produto) {
-        await ctx.editMessageText('❌ Produto padrão não encontrado. Tente novamente mais tarde.');
-        return;
-      }
-
-      const botoes = Markup.inlineKeyboard([
-        [Markup.button.callback(`Comprar - R$ ${produto.preco.toFixed(2)}`, 'confirmar')],
-      ]);
-
-      // Send promotional message with purchase button to all users sequentially
-      for (const row of rows) {
-        try {
-          // row.telegramId may be string, but Telegram API expects a number or string;
-          // ensure it is string
-          const chatId = row.telegramId.toString();
-          await ctx.telegram.sendMessage(chatId, mensagemPromocional, { reply_markup: botoes.reply_markup });
-        } catch (e) {
-          console.error(`Erro ao enviar mensagem para usuário ${row.telegramId}:`, e);
+        const produto = obterProduto('assinatura');
+        if (!produto) {
+          await ctx.editMessageText('❌ Produto padrão não encontrado. Tente novamente mais tarde.');
+          return;
         }
-      }
 
-      await ctx.editMessageText('📢 Mensagem de promoção enviada para todos os usuários.');
-    });
+        const botoes = Markup.inlineKeyboard([
+          [Markup.button.callback(`Comprar - R$ ${produto.preco.toFixed(2)}`, 'confirmar')],
+        ]);
+
+        // Send promotional message with purchase button to all users sequentially
+        for (const row of rows) {
+          try {
+            // row.telegramId may be string, but Telegram API expects a number or string;
+            // ensure it is string
+            const chatId = row.telegramId.toString();
+            await ctx.telegram.sendMessage(chatId, mensagemPromocional, { reply_markup: botoes.reply_markup });
+          } catch (e) {
+            console.error(`Erro ao enviar mensagem para usuário ${row.telegramId}:`, e);
+          }
+        }
+
+        await ctx.editMessageText('📢 Mensagem de promoção enviada para todos os usuários.');
+      });
   });
 
   bot.action('verificar_pagamento', async (ctx) => {
@@ -293,6 +293,29 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       await ctx.reply('⚠️ Você não tem permissão para usar esse comando.');
       return;
     }
+
+    const mensagemPromocional = `🚨 ÚLTIMA CHANCE 🚨
+📦 +20 MILHÕES de vídeos +60 MIL MODELOS REAIS
+❌ Vai continuar pagando caro e tomando no seco?
+✅ Um pagamento +15 GRUPOS VIP LIBERADOS
+
+💣 Atualizações diárias
+➕ 19 GRUPOS VIP inclusos
+
+💥 30% OFF HOJE — SE NÃO CLICAR, FODEU
+👇 CLICA AGORA E MERGULHA NA PUTARIA 👇`;
+
+    const produto = obterProduto('assinatura');
+    if (!produto) {
+      await ctx.reply('❌ Produto padrão não encontrado. Tente novamente mais tarde.');
+      return;
+    }
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.callback(`Comprar - R$ ${produto.preco.toFixed(2)}`, 'confirmar')],
+    ]);
+
+    await ctx.reply(mensagemPromocional, botoes);
   });
 
   // New command /msg for admin to send multi-line message with photo
@@ -329,33 +352,6 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       console.error('Erro ao enviar mensagem com /msg:', error);
       await ctx.reply('❌ Erro ao enviar a mensagem. Tente novamente.');
     }
-  });
-
-    const mensagemPromocional = `🚨 ÚLTIMA CHANCE 🚨
-📦 +20 MILHÕES de vídeos +60 MIL MODELOS REAIS
-❌ Vai continuar pagando caro e tomando no seco?
-✅ Um pagamento +15 GRUPOS VIP LIBERADOS
-
-💣 Atualizações diárias
-➕ 19 GRUPOS VIP inclusos
-
-💥 30% OFF HOJE — SE NÃO CLICAR, FODEU
-👇 CLICA AGORA E MERGULHA NA PUTARIA 👇`;
-
-    const produto = obterProduto('assinatura');
-    if (!produto) {
-      await ctx.reply('❌ Produto padrão não encontrado. Tente novamente mais tarde.');
-      return;
-    }
-
-    ctx.session = ctx.session || {};
-    ctx.session.produtoCodigo = produto.codigo;
-
-    const botoes = Markup.inlineKeyboard([
-      [Markup.button.callback(`Comprar - R$ ${produto.preco.toFixed(2)}`, 'confirmar')],
-    ]);
-
-    await ctx.reply(mensagemPromocional, botoes);
   });
 }
 
