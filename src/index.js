@@ -2,6 +2,7 @@ const { Telegraf, Markup, session } = require('telegraf');
 const { loadSettings } = require('./config');
 const { PaymentClient } = require('./paymentClient');
 const { obterProduto } = require('./products');
+const { carregarEstado, salvarMensagemInicio, registrarInteracao } = require('./storage');
 
 const qrCodeRateLimiter = new Map();
 
@@ -19,22 +20,64 @@ function botoesConfirmacao() {
   ]);
 }
 
-async function registrarHandlers(bot, paymentClient, suporteUrl) {
-  const sendWelcomeMessage = async (ctx, edit = false) => {
-    const mensagem = [
-      '👋 Seja bem-vindo!',
-      '',
-      'Este bot foi pensado para vendas rápidas e seguras.',
-      'Clique no botão abaixo para ver nossa assinatura e receber o link ou QR Code de pagamento.',
-    ].join('\n');
+function extrairTextoComando(message, comando) {
+  const origem = message.text || message.caption || '';
+  return origem.replace(new RegExp(`^/${comando}(?:@\\w+)?\\b`), '').trim();
+}
+
+function extrairMidia(message) {
+  if (message.photo?.length) {
+    const ultimaFoto = message.photo[message.photo.length - 1];
+    return { tipo: 'photo', arquivoId: ultimaFoto.file_id };
+  }
+
+  if (message.video) {
+    return { tipo: 'video', arquivoId: message.video.file_id };
+  }
+
+  return null;
+}
+
+async function registrarHandlers(bot, paymentClient, suporteUrl, adminIds, estadoInicial) {
+  let estadoAtual = estadoInicial;
+  let mensagemInicio = estadoAtual.mensagemInicio;
+
+  const isAdmin = (userId) => adminIds.includes(Number(userId));
+
+  const sendWelcomeMessage = async (ctx, { viaCallback = false } = {}) => {
     const botoes = botoesBoasVindas(suporteUrl);
 
-    if (edit) {
-      await ctx.editMessageText(mensagem, botoes);
+    if (mensagemInicio.tipo === 'photo' && mensagemInicio.arquivoId) {
+      await ctx.replyWithPhoto(mensagemInicio.arquivoId, {
+        caption: mensagemInicio.texto,
+        parse_mode: 'HTML',
+        ...botoes,
+      });
+      return;
+    }
+
+    if (mensagemInicio.tipo === 'video' && mensagemInicio.arquivoId) {
+      await ctx.replyWithVideo(mensagemInicio.arquivoId, {
+        caption: mensagemInicio.texto,
+        parse_mode: 'HTML',
+        ...botoes,
+      });
+      return;
+    }
+
+    if (viaCallback && ctx.callbackQuery?.message?.message_id) {
+      await ctx.editMessageText(mensagemInicio.texto, botoes);
     } else {
-      await ctx.reply(mensagem, botoes);
+      await ctx.reply(mensagemInicio.texto, botoes);
     }
   };
+
+  bot.use(async (ctx, next) => {
+    if (ctx.chat?.type === 'private' && ctx.from?.id) {
+      estadoAtual = registrarInteracao(estadoAtual, ctx.from.id);
+    }
+    return next();
+  });
 
   bot.start(async (ctx) => {
     await sendWelcomeMessage(ctx);
@@ -42,7 +85,7 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
 
   bot.action('start_menu', async (ctx) => {
     await ctx.answerCbQuery();
-    await sendWelcomeMessage(ctx, true);
+    await sendWelcomeMessage(ctx, { viaCallback: true });
   });
 
   bot.action('listar', async (ctx) => {
@@ -124,6 +167,86 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
     await ctx.answerCbQuery('Funcionalidade em desenvolvimento.');
   });
 
+  bot.command('msg', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      await ctx.reply('❌ Comando restrito a administradores.');
+      return;
+    }
+
+    const texto = extrairTextoComando(ctx.message, 'msg');
+    const midia = extrairMidia(ctx.message);
+
+    if (!texto && !midia) {
+      await ctx.reply('Envie o texto da mensagem após /msg. Você pode anexar uma foto ou vídeo opcionalmente.');
+      return;
+    }
+
+    const promises = adminIds.map(async (adminId) => {
+      if (midia?.tipo === 'photo') {
+        return bot.telegram.sendPhoto(adminId, midia.arquivoId, {
+          caption: texto || undefined,
+          parse_mode: 'HTML',
+        });
+      }
+
+      if (midia?.tipo === 'video') {
+        return bot.telegram.sendVideo(adminId, midia.arquivoId, {
+          caption: texto || undefined,
+          parse_mode: 'HTML',
+        });
+      }
+
+      return bot.telegram.sendMessage(adminId, texto, { parse_mode: 'HTML' });
+    });
+
+    await Promise.all(promises);
+    await ctx.reply('✅ Mensagem enviada para os administradores.');
+  });
+
+  bot.command('trocar_inicio', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      await ctx.reply('❌ Comando restrito a administradores.');
+      return;
+    }
+
+    const texto = extrairTextoComando(ctx.message, 'trocar_inicio');
+    const midia = extrairMidia(ctx.message);
+
+    if (!texto && !midia) {
+      await ctx.reply('Envie o novo texto após /trocar_inicio. Você pode anexar uma foto ou vídeo para acompanhar a mensagem de boas-vindas.');
+      return;
+    }
+
+    const novaMensagem = {
+      tipo: midia?.tipo || 'text',
+      texto: texto || 'Bem-vindo!',
+      arquivoId: midia?.arquivoId || null,
+    };
+
+    estadoAtual = salvarMensagemInicio(estadoAtual, novaMensagem);
+    mensagemInicio = estadoAtual.mensagemInicio;
+
+    await ctx.reply('🚀 Mensagem inicial atualizada com sucesso! Use /start para conferir.');
+  });
+
+  bot.command('metricas', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      await ctx.reply('❌ Comando restrito a administradores.');
+      return;
+    }
+
+    const totalUsuarios = estadoAtual.metricas.usuarios.length;
+    const totalMensagens = estadoAtual.metricas.totalMensagens;
+
+    const linhas = [
+      '📊 Métricas gerais (DM):',
+      `• Usuários únicos que já falaram: ${totalUsuarios}`,
+      `• Mensagens recebidas em DM: ${totalMensagens}`,
+    ];
+
+    await ctx.reply(linhas.join('\n'));
+  });
+
   bot.on('message', async (ctx) => {
     await ctx.reply('Use /start para começar.');
   });
@@ -131,6 +254,7 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
 
 async function bootstrap() {
   const settings = loadSettings();
+  const estado = carregarEstado();
   const paymentClient = new PaymentClient({
     apiKey: settings.asaasApiKey,
     baseUrl: settings.asaasBaseUrl,
@@ -138,7 +262,7 @@ async function bootstrap() {
 
   const bot = new Telegraf(settings.telegramToken);
   bot.use(session());
-  await registrarHandlers(bot, paymentClient, settings.suporteUrl);
+  await registrarHandlers(bot, paymentClient, settings.suporteUrl, settings.adminIds, estado);
 
   console.log('🤖 Iniciando o bot de vendas...');
   await bot.launch();

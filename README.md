@@ -22,6 +22,7 @@ Node.js, pensada para ser humanizada e em português.
    ASAAS_API_KEY=sua_chave_da_api_asaas
    ASAAS_BASE_URL=https://www.asaas.com/api/v3  # opcional, já vem como padrão
    SUPORTE_URL=https://t.me/seu_usuario          # opcional, personaliza o botão de suporte
+   ADMIN_IDS=123456789,987654321                 # IDs numéricos dos administradores separados por vírgula
    ```
 
 2. Instale as dependências:
@@ -39,6 +40,14 @@ Node.js, pensada para ser humanizada e em português.
 - `src/products.js`: catálogo inicial de produtos.
 - `src/paymentClient.js`: cliente HTTP para criar cobranças PIX no ASAAS.
 - `src/index.js`: inicialização do Telegraf, handlers e fluxo de compra.
+- `src/storage.js`: persistência da mensagem inicial personalizada e das métricas básicas de uso.
+
+## Comandos administrativos
+- `/msg <texto>`: envia comunicados apenas para os administradores listados em `ADMIN_IDS`. Suporta envio de foto ou vídeo
+  anexados ao comando, mantendo quebras de linha do texto.
+- `/trocar_inicio <texto>`: altera a mensagem inicial exibida no `/start`. Aceita texto simples ou mídia (foto/vídeo) com
+  legenda; o conteúdo fica salvo em `data/bot-state.json` para ser reaproveitado nos próximos inícios.
+- `/metricas`: mostra para administradores quantos usuários únicos já conversaram em DM e o total de mensagens recebidas.
 
 ## Fluxo de compra
 1. Usuário envia `/start` e clica em **Ver produtos**.
