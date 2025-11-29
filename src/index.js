@@ -6,6 +6,18 @@ const { carregarEstado, salvarMensagemInicio, registrarInteracao, adicionarPagam
 const fs = require('fs');
 const path = require('path');
 
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const VIDEOS_DIR = path.join(DATA_DIR, 'videos');
+
+function garantirDiretorioLocal(diretorio) {
+  if (!fs.existsSync(diretorio)) {
+    fs.mkdirSync(diretorio, { recursive: true });
+  }
+}
+
+garantirDiretorioLocal(DATA_DIR);
+garantirDiretorioLocal(VIDEOS_DIR);
+
 const qrCodeRateLimiter = new Map();
 
 function botoesBoasVindas(suporteUrl) {
@@ -171,6 +183,8 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
   const sendWelcomeMessage = async (ctx, { viaCallback = false } = {}) => {
     const botoes = botoesBoasVindas(suporteUrl);
 
+    const videoLocalExiste = mensagemInicio.tipo === 'video_local' && mensagemInicio.arquivoPath && fs.existsSync(mensagemInicio.arquivoPath);
+
     if (mensagemInicio.tipo === 'photo' && mensagemInicio.arquivoId) {
       await ctx.replyWithPhoto(mensagemInicio.arquivoId, {
         caption: mensagemInicio.texto,
@@ -189,7 +203,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       return;
     }
 
-    if (mensagemInicio.tipo === 'video_local' && mensagemInicio.arquivoPath) {
+    if (mensagemInicio.tipo === 'video_local' && videoLocalExiste) {
       try {
         // Ler o arquivo de vídeo localmente
         const videoStream = fs.createReadStream(mensagemInicio.arquivoPath);
@@ -208,6 +222,10 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
         }
       }
       return;
+    }
+
+    if (mensagemInicio.tipo === 'video_local' && !videoLocalExiste) {
+      console.warn('Vídeo local configurado, mas arquivo não encontrado. Enviando mensagem em texto.');
     }
 
     if (viaCallback && ctx.callbackQuery?.message?.message_id) {
@@ -729,7 +747,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       // Criar nome único para o arquivo
       const timestamp = Date.now();
       const fileName = `welcome_video_${timestamp}.mp4`;
-      const filePath = path.join(__dirname, '..', 'data', 'videos', fileName);
+      const filePath = path.join(VIDEOS_DIR, fileName);
 
       // Salvar o vídeo localmente
       const writer = fs.createWriteStream(filePath);
