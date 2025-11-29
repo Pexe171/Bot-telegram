@@ -104,7 +104,15 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
           ]);
 
           try {
-            await bot.telegram.sendMessage(pagamento.userId, mensagemConfirmacao, botoes);
+            if (estadoAtual.pixPhoto?.arquivoId) {
+              await bot.telegram.sendPhoto(pagamento.userId, estadoAtual.pixPhoto.arquivoId, {
+                caption: mensagemConfirmacao,
+                parse_mode: 'HTML',
+                ...botoes,
+              });
+            } else {
+              await bot.telegram.sendMessage(pagamento.userId, mensagemConfirmacao, botoes);
+            }
           } catch (error) {
             console.error(`Erro ao notificar usuário ${pagamento.userId}:`, error);
           }
@@ -343,10 +351,29 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       [Markup.button.callback('🔙 Início', 'start_menu')],
     ]);
 
-    await ctx.editMessageText(texto, {
-      parse_mode: 'HTML',
-      ...botoes,
-    });
+    // Send QR code with photo if configured
+    try {
+      if (estadoAtual.pixPhoto?.arquivoId) {
+        await ctx.editMessageText('⏳ Gerando QR code...');
+        await ctx.replyWithPhoto(estadoAtual.pixPhoto.arquivoId, {
+          caption: texto,
+          parse_mode: 'HTML',
+          ...botoes,
+        });
+      } else {
+        await ctx.editMessageText(texto, {
+          parse_mode: 'HTML',
+          ...botoes,
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao enviar QR code com foto:', error);
+      // Fallback to text message
+      await ctx.editMessageText(texto, {
+        parse_mode: 'HTML',
+        ...botoes,
+      });
+    }
   });
 
   bot.action('verificar_pagamento', async (ctx) => {
@@ -414,10 +441,29 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
         [Markup.button.callback('🔙 Início', 'start_menu')],
       ]);
 
-      await ctx.editMessageText(texto, {
-        parse_mode: 'HTML',
-        ...botoes,
-      });
+      // Send QR code with photo if configured
+      try {
+        if (estadoAtual.pixPhoto?.arquivoId) {
+          await ctx.editMessageText('⏳ Gerando QR code...');
+          await ctx.replyWithPhoto(estadoAtual.pixPhoto.arquivoId, {
+            caption: texto,
+            parse_mode: 'HTML',
+            ...botoes,
+          });
+        } else {
+          await ctx.editMessageText(texto, {
+            parse_mode: 'HTML',
+            ...botoes,
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao enviar QR code com foto:', error);
+        // Fallback to text message
+        await ctx.editMessageText(texto, {
+          parse_mode: 'HTML',
+          ...botoes,
+        });
+      }
       return;
     }
 
@@ -466,6 +512,24 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
         [Markup.button.callback('🔙 Início', 'start_menu')],
       ]);
 
+      // Send confirmation message with photo if configured
+      try {
+        if (estadoAtual.pixPhoto?.arquivoId) {
+          await ctx.editMessageText('🎉 Pagamento confirmado!'); // Clear the "verifying" message
+          await ctx.replyWithPhoto(estadoAtual.pixPhoto.arquivoId, {
+            caption: mensagemStatus,
+            parse_mode: 'HTML',
+            ...botoes,
+          });
+        } else {
+          await ctx.editMessageText(mensagemStatus, botoes);
+        }
+      } catch (error) {
+        console.error('Erro ao enviar confirmação com foto:', error);
+        // Fallback to text message
+        await ctx.editMessageText(mensagemStatus, botoes);
+      }
+
       // Notificar administradores sobre o pagamento confirmado
       const notificacaoAdmin = [
         '💰 PAGAMENTO CONFIRMADO!',
@@ -491,6 +555,8 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       ctx.session.produtoCodigo = undefined;
       ctx.session.produtoPromocional = undefined;
       ctx.session.promocaoId = undefined;
+
+      return; // Exit early since we handled the response above
 
     } else if (statusPagamento.status === 'PENDING') {
       mensagemStatus = [
@@ -763,6 +829,17 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     await ctx.reply(linhas.join('\n'));
   });
 
+  bot.command('pix_foto', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      await ctx.reply('❌ Comando restrito a administradores.');
+      return;
+    }
+
+    ctx.session = ctx.session || {};
+    ctx.session.pixFoto = { etapa: 'aguardando_foto' };
+    await ctx.reply('📸 Agora envie a foto que será usada junto com o texto do PIX.');
+  });
+
   const processarVideoInicio = async (ctx, midia) => {
     await ctx.reply('⏳ Baixando vídeo...');
 
@@ -820,6 +897,21 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
           return;
         } else {
           await ctx.reply('❌ Você deve enviar um vídeo. Tente novamente.');
+          return;
+        }
+      }
+
+      // Verificar se está aguardando foto para /pix_foto
+      if (ctx.session?.pixFoto?.etapa === 'aguardando_foto') {
+        const midia = extrairMidia(ctx.message);
+
+        if (midia && midia.tipo === 'photo') {
+          estadoAtual = salvarPixPhoto(estadoAtual, { arquivoId: midia.arquivoId });
+          ctx.session.pixFoto = undefined;
+          await ctx.reply('✅ Foto configurada com sucesso! Agora será enviada junto com as confirmações de pagamento.');
+          return;
+        } else {
+          await ctx.reply('❌ Você deve enviar uma foto. Tente novamente.');
           return;
         }
       }

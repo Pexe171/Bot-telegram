@@ -1,4 +1,5 @@
-- [x] Refatorar o fluxo de promoção: alterar para perguntar o nome da promoção primeiro, depois o valor, e enviar mensagem padrão sem mídia personalizada.
-- [x] Atualizar a função iniciarFluxoPromocao para perguntar pelo nome.
-- [x] Modificar o handler de mensagem para etapa 'nome' salvar o nome, depois 'valor' enviar promoção padrão.
-- [x] Ajustar enviarPromocaoParaTodos para enviar apenas texto padrão com nome e valor, sem mídia.
+- [x] Update storage.js to include pixPhoto property in bot state
+- [x] Add /pix_foto command in index.js to prompt admin for photo and save it
+- [x] Modify payment confirmation flow in index.js to send photo with PIX text if set
+- [x] Test the /pix_foto command
+- [x] Verify photo is sent with PIX payments

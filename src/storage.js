@@ -23,6 +23,7 @@ const DEFAULT_STATE = {
   },
   pendingPayments: [], // {qrCodeId, userId, produto, timestamp, checkCount}
   promotions: [], // {id, name, value, link, createdAt}
+  pixPhoto: null, // {arquivoId: string, tipo: 'photo'}
 };
 
 function garantirDiretorio() {
@@ -47,12 +48,14 @@ function normalizarEstado(rawState) {
 
   const pendingPayments = estado.pendingPayments || [];
   const promotions = estado.promotions || [];
+  const pixPhoto = estado.pixPhoto || null;
 
   return {
     mensagemInicio,
     metricas,
     pendingPayments,
     promotions,
+    pixPhoto,
   };
 }
 
@@ -156,9 +159,16 @@ function limparPromocoesExpiradas(estadoAtual) {
   return salvarEstado(estado);
 }
 
+function salvarPixPhoto(estadoAtual, pixPhoto) {
+  const estado = normalizarEstado(estadoAtual);
+  estado.pixPhoto = pixPhoto;
+  return salvarEstado(estado);
+}
+
 module.exports = {
   carregarEstado,
   salvarMensagemInicio,
+  salvarPixPhoto,
   registrarInteracao,
   adicionarPagamentoPendente,
   removerPagamentoPendente,
