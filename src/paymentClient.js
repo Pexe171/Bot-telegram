@@ -67,15 +67,15 @@ class PaymentClient {
     try {
       console.log('Criando nova cobrança PIX...');
       const { data } = await this.http.post('/payments', payload);
-      
+
       if (!data.id) {
         throw new Error('Resposta da API Asaas não continha um ID de pagamento.');
       }
-      
+
       // After creating the payment, we need to get the QR Code
       console.log(`Cobrança ${data.id} criada. Buscando QR Code...`);
       const { data: pixData } = await this.http.get(`/payments/${data.id}/pixQrCode`);
-      
+
       return {
         qrCodePix: pixData.payload,
         qrCodeId: data.id, // The payment ID
@@ -84,6 +84,23 @@ class PaymentClient {
     } catch (error) {
       const reason = error.response?.data || error.message;
       console.error('[PaymentClient] Erro ao criar cobrança PIX:', reason);
+      return null;
+    }
+  }
+
+  async verificarPagamento(paymentId) {
+    try {
+      const { data } = await this.http.get(`/payments/${paymentId}`);
+      return {
+        status: data.status, // RECEIVED, CONFIRMED, PENDING, etc.
+        value: data.value,
+        description: data.description,
+        paymentDate: data.paymentDate,
+        netValue: data.netValue,
+      };
+    } catch (error) {
+      const reason = error.response?.data || error.message;
+      console.error('[PaymentClient] Erro ao verificar pagamento:', reason);
       return null;
     }
   }

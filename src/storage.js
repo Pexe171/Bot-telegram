@@ -21,6 +21,7 @@ const DEFAULT_STATE = {
     usuarios: [],
     totalMensagens: 0,
   },
+  pendingPayments: [], // {qrCodeId, userId, produto, timestamp, checkCount}
 };
 
 function garantirDiretorio() {
@@ -43,9 +44,12 @@ function normalizarEstado(rawState) {
     totalMensagens: Number(estado.metricas?.totalMensagens) || usuarios.length || 0,
   };
 
+  const pendingPayments = estado.pendingPayments || [];
+
   return {
     mensagemInicio,
     metricas,
+    pendingPayments,
   };
 }
 
@@ -94,9 +98,47 @@ function registrarInteracao(estadoAtual, userId) {
   return salvarEstado(estado);
 }
 
+function adicionarPagamentoPendente(estadoAtual, qrCodeId, userId, produto) {
+  const estado = normalizarEstado(estadoAtual);
+  estado.pendingPayments = estado.pendingPayments || [];
+  estado.pendingPayments.push({
+    qrCodeId,
+    userId: Number(userId),
+    produto,
+    timestamp: Date.now(),
+    checkCount: 0,
+  });
+  return salvarEstado(estado);
+}
+
+function removerPagamentoPendente(estadoAtual, qrCodeId) {
+  const estado = normalizarEstado(estadoAtual);
+  estado.pendingPayments = estado.pendingPayments || [];
+  estado.pendingPayments = estado.pendingPayments.filter(p => p.qrCodeId !== qrCodeId);
+  return salvarEstado(estado);
+}
+
+function obterPagamentosPendentes(estadoAtual) {
+  const estado = normalizarEstado(estadoAtual);
+  return estado.pendingPayments || [];
+}
+
+function incrementarCheckCount(estadoAtual, qrCodeId) {
+  const estado = normalizarEstado(estadoAtual);
+  const pagamento = estado.pendingPayments.find(p => p.qrCodeId === qrCodeId);
+  if (pagamento) {
+    pagamento.checkCount += 1;
+  }
+  return salvarEstado(estado);
+}
+
 module.exports = {
   carregarEstado,
   salvarMensagemInicio,
   registrarInteracao,
+  adicionarPagamentoPendente,
+  removerPagamentoPendente,
+  obterPagamentosPendentes,
+  incrementarCheckCount,
   DEFAULT_WELCOME_MESSAGE,
 };

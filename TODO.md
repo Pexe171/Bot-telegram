@@ -1,0 +1,4 @@
+- [x] Refatorar o fluxo de promoção: alterar para perguntar o nome da promoção primeiro, depois o valor, e enviar mensagem padrão sem mídia personalizada.
+- [x] Atualizar a função iniciarFluxoPromocao para perguntar pelo nome.
+- [x] Modificar o handler de mensagem para etapa 'nome' salvar o nome, depois 'valor' enviar promoção padrão.
+- [x] Ajustar enviarPromocaoParaTodos para enviar apenas texto padrão com nome e valor, sem mídia.

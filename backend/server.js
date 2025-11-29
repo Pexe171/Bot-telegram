@@ -1,4 +1,3 @@
-
 const express = require('express');
 const bodyParser = require('body-parser');
 const sqlite3 = require('sqlite3').verbose();
@@ -47,9 +46,6 @@ db.serialize(() => {
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(userId) REFERENCES users(id)
   )`);
-
-
-  // Add other tables for promotions, pricing, analytics as needed
 });
 
 // --- Telegram Bot Setup ---
@@ -79,7 +75,7 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       '',
       'Este bot foi pensado para vendas rápidas e seguras.',
       'Clique no botão abaixo para ver nossa assinatura e receber o link ou QR Code de pagamento.',
-    ].join('\\n');
+    ].join('\n');
     const botoes = botoesBoasVindas(suporteUrl);
 
     if (edit) {
@@ -98,7 +94,6 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
   };
 
   bot.start(async (ctx) => {
-    // Register user on first interaction if not exists
     const telegramId = ctx.from.id.toString();
     const username = ctx.from.username || '';
     const firstName = ctx.from.first_name || '';
@@ -144,17 +139,14 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
     const mensagem = [
       `Você escolheu ${produto.nome} (R$ ${produto.preco.toFixed(2)}).`,
       'Deseja gerar o QR code de pagamento?',
-    ].join('\\n');
+    ].join('\n');
 
     await ctx.editMessageText(mensagem, botoesConfirmacao());
   });
 
   bot.action('confirmar', async (ctx) => {
     await ctx.answerCbQuery();
-    // Try to fetch session first if undefined
     if (!ctx.session) {
-      // Manually get session from middleware store if exists (telegraf-session uses in-memory by default)
-      // But here, safer to fail gracefully with a detailed error
       await ctx.editMessageText('❌ Erro: sessão não encontrada. Por favor, recomece a compra com /start.');
       return;
     }
@@ -166,11 +158,10 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       return;
     }
 
-    // Rate limiting: 4 QR codes per hour per user
     const userId = ctx.from.id;
     const now = Date.now();
     const userRequests = qrCodeRateLimiter.get(userId) || [];
-    const recentRequests = userRequests.filter(time => now - time < 3600000); // 1 hour
+    const recentRequests = userRequests.filter(time => now - time < 3600000); 
 
     if (recentRequests.length >= 4) {
       await ctx.editMessageText('⚠️ Você atingiu o limite de 4 QR codes por hora. Tente novamente mais tarde.');
@@ -199,7 +190,7 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       `<code>${dadosPagamento.qrCodePix}</code>`,
       '👆 Toque na chave PIX acima para copiá-la',
       '‼ Após o pagamento, clique no botão abaixo para verificar o status:',
-    ].join('\\n');
+    ].join('\n');
 
     const botoes = Markup.inlineKeyboard([
       [Markup.button.callback('Verificar status', 'verificar_pagamento')],
@@ -218,7 +209,6 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       return;
     }
 
-    // Query all users who have interacted with the bot
     db.all('SELECT telegramId FROM users', async (err, rows) => {
       if (err) {
         console.error('Erro ao buscar usuários no banco de dados:', err);
@@ -247,11 +237,8 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
         [Markup.button.callback(`Comprar - R$ ${produto.preco.toFixed(2)}`, 'confirmar')],
       ]);
 
-      // Send promotional message with purchase button to all users sequentially
       for (const row of rows) {
         try {
-          // row.telegramId may be string, but Telegram API expects a number or string;
-          // ensure it is string
           const chatId = row.telegramId.toString();
           await ctx.telegram.sendMessage(chatId, mensagemPromocional, { reply_markup: botoes.reply_markup });
         } catch (e) {
@@ -267,47 +254,19 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
     await ctx.answerCbQuery('Funcionalidade em desenvolvimento.');
   });
 
-  bot.on('message', async (ctx) => {
-    // Register user on any message interaction, if not already registered
-    const telegramId = ctx.from.id.toString();
-    const username = ctx.from.username || '';
-    const firstName = ctx.from.first_name || '';
-    const lastName = ctx.from.last_name || '';
+  // --- COMANDOS ---
 
-    db.run(
-      `INSERT OR IGNORE INTO users (telegramId, username, firstName, lastName) VALUES (?, ?, ?, ?)`,
-      [telegramId, username, firstName, lastName],
-      (err) => {
-        if (err) {
-          console.error('Erro ao inserir usuário:', err);
-        }
-      }
-    );
-
-    await ctx.reply('Use /start para começar.');
-  });
-
-  bot.command('promocao', async (ctx) => {
-    const adminId = 5764516358;
-    if (ctx.from.id !== adminId) {
-      await ctx.reply('⚠️ Você não tem permissão para usar esse comando.');
-      return;
-    }
-  });
-
-  // New command /msg for admin to send multi-line message with photo
+  // Comando MSG (para admin enviar mensagens/fotos)
   bot.command('msg', async (ctx) => {
-    const adminId = 5764516358;
-    if (ctx.from.id !== adminId) {
+    // Nota: usando adminId definido no escopo de registrarHandlers, ou você pode redefinir se preferir hardcoded
+    if (ctx.from.id !== adminId && ctx.from.id !== 5764516358) {
       await ctx.reply('⚠️ Você não tem permissão para usar esse comando.');
       return;
     }
 
-    // Remove the command prefix from the message text to get content body
     const mensagemComando = ctx.message.text;
     const textoMensagem = mensagemComando.replace(/^\/msg\s+/, '').trim();
 
-    // If there's no additional text, prompt the admin to send with caption or photo
     if (!textoMensagem && !ctx.message.photo) {
       await ctx.reply('Por favor, envie a mensagem após o comando /msg, podendo conter texto com quebras de linha e/ou foto.');
       return;
@@ -315,14 +274,10 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
 
     try {
       const chatId = ctx.chat.id;
-
-      // If message has photo(s), send photo with caption
       if (ctx.message.photo && ctx.message.photo.length > 0) {
-        // Use the highest resolution photo
         const photo = ctx.message.photo[ctx.message.photo.length - 1].file_id;
         await ctx.telegram.sendPhoto(chatId, photo, { caption: textoMensagem, parse_mode: 'HTML' });
       } else {
-        // Only text message
         await ctx.telegram.sendMessage(chatId, textoMensagem, { parse_mode: 'HTML' });
       }
     } catch (error) {
@@ -330,6 +285,13 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
       await ctx.reply('❌ Erro ao enviar a mensagem. Tente novamente.');
     }
   });
+
+  // Comando PROMOCAO (para admin testar o layout da promo)
+  bot.command('promocao', async (ctx) => {
+    if (ctx.from.id !== adminId && ctx.from.id !== 5764516358) {
+      await ctx.reply('⚠️ Você não tem permissão para usar esse comando.');
+      return;
+    }
 
     const mensagemPromocional = `🚨 ÚLTIMA CHANCE 🚨
 📦 +20 MILHÕES de vídeos +60 MIL MODELOS REAIS
@@ -357,6 +319,29 @@ async function registrarHandlers(bot, paymentClient, suporteUrl) {
 
     await ctx.reply(mensagemPromocional, botoes);
   });
+
+  // Handler genérico de mensagens (fica por último para não interceptar comandos)
+  bot.on('message', async (ctx) => {
+    const telegramId = ctx.from.id.toString();
+    const username = ctx.from.username || '';
+    const firstName = ctx.from.first_name || '';
+    const lastName = ctx.from.last_name || '';
+
+    db.run(
+      `INSERT OR IGNORE INTO users (telegramId, username, firstName, lastName) VALUES (?, ?, ?, ?)`,
+      [telegramId, username, firstName, lastName],
+      (err) => {
+        if (err) {
+          console.error('Erro ao inserir usuário:', err);
+        }
+      }
+    );
+
+    // Se não for comando, responde com instrução
+    if (!ctx.message.text || !ctx.message.text.startsWith('/')) {
+        await ctx.reply('Use /start para começar.');
+    }
+  });
 }
 
 // Start bot after syncing database
@@ -367,10 +352,7 @@ async function bootstrap() {
     baseUrl: settings.asaasBaseUrl,
   });
 
-  // Use memory session middleware for storing session data
   const bot = new Telegraf(settings.telegramToken);
-
-  // Use Telegraf session middleware
   bot.use(session());
 
   await registrarHandlers(bot, paymentClient, settings.suporteUrl);

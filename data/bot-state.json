@@ -3,5 +3,14 @@
     "tipo": "text",
     "texto": "👋 Seja bem-vindo!\n\nEste bot foi pensado para vendas rápidas e seguras.\nClique no botão abaixo para ver nossa assinatura e receber o link ou QR Code de pagamento.",
     "arquivoId": null
-  }
+  },
+  "metricas": {
+    "usuarios": [
+      5764516358,
+      1487468819,
+      8063628457
+    ],
+    "totalMensagens": 42
+  },
+  "pendingPayments": []
 }
