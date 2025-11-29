@@ -1,7 +1,8 @@
 # Bot de Vendas no Telegram (Node.js)
 
 Bot completo para vender produtos digitais via Telegram com geração de cobrança PIX via ASAAS. Toda a automação está em
-Node.js, pensada para ser humanizada e em português.
+Node.js, pensada para ser humanizada e em português. Não há servidor HTTP separado: o fluxo roda apenas no bot
+(`src/index.js`) e persiste o estado em arquivos JSON.
 
 ## Visão geral
 - `/start` exibe a vitrine, botão de suporte e leva o usuário ao fluxo de compra.
@@ -30,10 +31,15 @@ Node.js, pensada para ser humanizada e em português.
    npm install
    ```
 
-3. Rode o bot:
+3. Rode o bot (o mesmo comando serve para desenvolvimento):
    ```bash
    npm start
    ```
+
+### Armazenamento em JSON
+- O estado do bot (mensagem inicial, métricas básicas e pagamentos pendentes) fica em `data/bot-state.json`.
+- Vídeos enviados via `/video_inicio` são baixados automaticamente em `data/videos/` e reutilizados nas próximas execuções.
+- As pastas são criadas automaticamente se ainda não existirem.
 
 ## Estrutura do código
 - `src/config.js`: leitura de variáveis de ambiente e saneamento de URLs.
