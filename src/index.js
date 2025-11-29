@@ -866,11 +866,9 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
         writer.on('error', reject);
       });
 
-      const texto = extrairTextoComando(ctx.message, 'video_inicio');
-
       const novaMensagem = {
         tipo: 'video_local',
-        texto: texto || 'Bem-vindo! Assista ao vídeo abaixo.',
+        texto: mensagemInicio.texto,
         arquivoPath: filePath,
         arquivoId: midia.arquivoId, // Manter para compatibilidade
       };
