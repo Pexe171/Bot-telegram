@@ -1,6 +1,30 @@
 const axios = require('axios');
 
-const DEFAULT_CPF = '06778101210';
+// Function to generate a random valid CPF
+function gerarCpfAleatorio() {
+  const randomDigits = () => Math.floor(Math.random() * 9) + 1; // 1-9 to avoid leading zero
+  const digits = Array.from({ length: 9 }, randomDigits);
+
+  // Calculate first check digit
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += digits[i] * (10 - i);
+  }
+  let firstCheck = 11 - (sum % 11);
+  if (firstCheck >= 10) firstCheck = 0;
+  digits.push(firstCheck);
+
+  // Calculate second check digit
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += digits[i] * (11 - i);
+  }
+  let secondCheck = 11 - (sum % 11);
+  if (secondCheck >= 10) secondCheck = 0;
+  digits.push(secondCheck);
+
+  return digits.join('');
+}
 
 class PaymentClient {
   constructor({ apiKey, baseUrl }) {
@@ -22,33 +46,26 @@ class PaymentClient {
 
   async getOrCreateCustomer(userData) {
     try {
-      // 1. Search for customer by CPF
-      console.log(`Buscando cliente com CPF: ${DEFAULT_CPF}`);
-      let { data: searchResult } = await this.http.get(`/customers?cpfCnpj=${DEFAULT_CPF}`);
-      if (searchResult.data && searchResult.data.length > 0) {
-        const customer = searchResult.data[0];
-        console.log(`Cliente encontrado: ${customer.id}`);
-        return customer.id;
-      }
+      // Generate a random CPF for each customer to ensure anonymity
+      const cpfAleatorio = gerarCpfAleatorio();
+      console.log(`Criando cliente com CPF aleatório: ${cpfAleatorio}`);
 
-      // 2. Create customer if not found
-      console.log('Cliente não encontrado, criando um novo...');
       const newCustomer = {
         name: `${userData.first_name} ${userData.last_name || ''}`.trim(),
-        cpfCnpj: DEFAULT_CPF,
+        cpfCnpj: cpfAleatorio,
         // email: userData.email, // Opcional, se você coletar
         // phone: userData.phone, // Opcional
         // mobilePhone: userData.phone, // Opcional
         notificationDisabled: true,
       };
-      
+
       let { data: createResult } = await this.http.post('/customers', newCustomer);
       console.log(`Cliente criado: ${createResult.id}`);
       return createResult.id;
 
     } catch (error) {
       const reason = error.response?.data || error.message;
-      console.error('[PaymentClient] Erro ao buscar ou criar cliente:', reason);
+      console.error('[PaymentClient] Erro ao criar cliente:', reason);
       throw new Error('Não foi possível processar os dados do cliente na Asaas.');
     }
   }
