@@ -9,13 +9,16 @@
     "usuarios": [
       5764516358,
       1487468819,
-      8063628457
+      8063628457,
+      5108330374,
+      6562331138
     ],
-    "totalMensagens": 75
+    "totalMensagens": 129
   },
   "pendingPayments": [],
   "promotions": [],
   "pixPhoto": {
     "arquivoId": "AgACAgEAAxkBAAM_aSpTHcmCAfDO58XIdYcYNj2QyJsAAqMLaxsGYVFFwur4IQY5ygMBAAMCAAN5AAM2BA"
-  }
+  },
+  "referrals": {}
 }

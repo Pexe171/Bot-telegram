@@ -2,7 +2,7 @@ const { Telegraf, Markup, session } = require('telegraf');
 const { loadSettings } = require('./config');
 const { PaymentClient } = require('./paymentClient');
 const { obterProduto } = require('./products');
-const { carregarEstado, salvarMensagemInicio, registrarInteracao, adicionarPagamentoPendente, removerPagamentoPendente, obterPagamentosPendentes, incrementarCheckCount, adicionarPromocao, limparPromocoesExpiradas } = require('./storage');
+const { carregarEstado, salvarMensagemInicio, registrarInteracao, adicionarPagamentoPendente, removerPagamentoPendente, obterPagamentosPendentes, incrementarCheckCount, adicionarPromocao, limparPromocoesExpiradas, obterDadosReferencia, criarOuObterCodigoReferencia, registrarReferencia, adicionarPontosReferencia, resgatarPontos } = require('./storage');
 const fs = require('fs');
 const path = require('path');
 
@@ -23,6 +23,7 @@ const qrCodeRateLimiter = new Map();
 function botoesBoasVindas(suporteUrl) {
   return Markup.inlineKeyboard([
     [Markup.button.callback('Ver assinatura', 'listar')],
+    [Markup.button.callback('Programa de Indicação', 'gerar_referral')],
     [Markup.button.url('Falar com suporte', suporteUrl)],
   ]);
 }
@@ -259,6 +260,23 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
   });
 
   bot.start(async (ctx) => {
+    // Check for referral code in start command
+    const startPayload = ctx.startPayload;
+    if (startPayload && /^\d+$/.test(startPayload)) {
+      // This is a referral link with user ID
+      const referrerCode = startPayload;
+      const newUserId = ctx.from.id;
+
+      // Register the referral
+      estadoAtual = registrarReferencia(estadoAtual, referrerCode, newUserId);
+
+      // Award points to referrer
+      estadoAtual = adicionarPontosReferencia(estadoAtual, referrerCode, 10);
+
+      // Send welcome message with referral info
+      await ctx.reply('🎉 Bem-vindo! Você foi indicado por um amigo e ganhou acesso especial!');
+    }
+
     await sendWelcomeMessage(ctx);
     await enviarPainelAdmin(ctx);
   });
@@ -274,7 +292,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     const produto = obterProduto('assinatura');
 
     if (!produto) {
-      await ctx.editMessageText('❌ Produto não encontrado. Tente novamente mais tarde.');
+      await ctx.reply('❌ Produto não encontrado. Tente novamente mais tarde.');
       return;
     }
 
@@ -285,7 +303,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       'Deseja gerar o QR code de pagamento?',
     ].join('\n');
 
-    await ctx.editMessageText(mensagem, botoesConfirmacao());
+    await ctx.reply(mensagem, botoesConfirmacao());
   });
 
   bot.action('confirmar', async (ctx) => {
@@ -467,12 +485,12 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       return;
     }
 
-    await ctx.editMessageText('⏳ Verificando status do pagamento...');
+    await ctx.reply('⏳ Verificando status do pagamento...');
 
     const statusPagamento = await paymentClient.verificarPagamento(qrCodeId);
 
     if (!statusPagamento) {
-      await ctx.editMessageText('⚠️ Não consegui verificar o status do pagamento agora. Tente novamente em instantes.');
+      await ctx.reply('⚠️ Não consegui verificar o status do pagamento agora. Tente novamente em instantes.');
       return;
     }
 
@@ -515,19 +533,18 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       // Send confirmation message with photo if configured
       try {
         if (estadoAtual.pixPhoto?.arquivoId) {
-          await ctx.editMessageText('🎉 Pagamento confirmado!'); // Clear the "verifying" message
           await ctx.replyWithPhoto(estadoAtual.pixPhoto.arquivoId, {
             caption: mensagemStatus,
             parse_mode: 'HTML',
             ...botoes,
           });
         } else {
-          await ctx.editMessageText(mensagemStatus, botoes);
+          await ctx.reply(mensagemStatus, botoes);
         }
       } catch (error) {
         console.error('Erro ao enviar confirmação com foto:', error);
         // Fallback to text message
-        await ctx.editMessageText(mensagemStatus, botoes);
+        await ctx.reply(mensagemStatus, botoes);
       }
 
       // Notificar administradores sobre o pagamento confirmado
@@ -590,7 +607,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       ]);
     }
 
-    await ctx.editMessageText(mensagemStatus, botoes);
+    await ctx.reply(mensagemStatus, botoes);
   });
 
   bot.action(/^promocao:(.+)$/, async (ctx) => {
@@ -624,6 +641,157 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     ].join('\n');
 
     await ctx.editMessageText(mensagem, botoesConfirmacao());
+  });
+
+  bot.action('gerar_referral', async (ctx) => {
+    await ctx.answerCbQuery();
+
+    const isTextMessage = ctx.callbackQuery.message.text;
+
+    if (isTextMessage) {
+      await ctx.editMessageText('⏳ Gerando seu link de indicação...');
+    } else {
+      await ctx.reply('⏳ Gerando seu link de indicação...');
+    }
+
+    const userId = ctx.from.id;
+    const dadosReferencia = obterDadosReferencia(estadoAtual, userId);
+
+    if (!dadosReferencia) {
+      const errorMsg = '❌ Não foi possível gerar seu código de referência. Tente novamente mais tarde.';
+      if (isTextMessage) {
+        await ctx.editMessageText(errorMsg);
+      } else {
+        await ctx.reply(errorMsg);
+      }
+      return;
+    }
+
+    const { referralCode: codigo, points: pontos, referredUsers: indicados } = dadosReferencia;
+    const botInfo = await ctx.telegram.getMe();
+    const botUsername = botInfo.username;
+    const referralLink = `https://t.me/${botUsername}?start=${codigo}`;
+
+    const mensagem = [
+      '🎉 Programa de Indicação!',
+      '',
+      'Convide seus amigos para ganhar pontos e resgatar recompensas!',
+      '',
+      `🔗 Seu link de indicação: ${referralLink}`,
+      '',
+      `📊 Seus pontos atuais: ${pontos}`,
+      `👥 Amigos indicados: ${indicados}`,
+      '',
+      '💡 Como funciona:',
+      '• Cada amigo que usar seu link ganha 10 pontos',
+      '• Com 50 pontos você ganha acesso gratuito!',
+      '',
+      'Compartilhe seu link e comece a ganhar!',
+    ].join('\n');
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.callback('Ver meus pontos', 'ver_pontos')],
+      [Markup.button.callback('Resgatar recompensa', 'resgatar_pontos')],
+      [Markup.button.callback('🔙 Início', 'start_menu')],
+    ]);
+
+    if (isTextMessage) {
+      await ctx.editMessageText(mensagem, botoes);
+    } else {
+      await ctx.reply(mensagem, botoes);
+    }
+  });
+
+  bot.action('ver_pontos', async (ctx) => {
+    await ctx.answerCbQuery();
+
+    const userId = ctx.from.id;
+    const dadosReferencia = obterDadosReferencia(estadoAtual, userId);
+
+    if (!dadosReferencia) {
+      await ctx.editMessageText('❌ Não foi possível obter seus dados de referência.');
+      return;
+    }
+
+    const { points: pontos, referredUsers: indicados } = dadosReferencia;
+
+    const mensagem = [
+      '📊 Seus Pontos de Indicação',
+      '',
+      `⭐ Pontos atuais: ${pontos}`,
+      `👥 Amigos indicados: ${indicados}`,
+      '',
+      '💡 Como ganhar pontos:',
+      '• Cada indicação = 10 pontos',
+      '• 50 pontos = Acesso gratuito!',
+      '',
+      'Use /referral para ver seu link de indicação.',
+    ].join('\n');
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.callback('Gerar link de indicação', 'gerar_referral')],
+      [Markup.button.callback('Resgatar recompensa', 'resgatar_pontos')],
+      [Markup.button.callback('🔙 Início', 'start_menu')],
+    ]);
+
+    await ctx.editMessageText(mensagem, botoes);
+  });
+
+  bot.action('resgatar_pontos', async (ctx) => {
+    await ctx.answerCbQuery();
+
+    const userId = ctx.from.id;
+    const dadosReferencia = obterDadosReferencia(estadoAtual, userId);
+
+    if (!dadosReferencia) {
+      await ctx.editMessageText('❌ Não foi possível verificar seus pontos.');
+      return;
+    }
+
+    const { pontos } = dadosReferencia;
+
+    if (pontos < 50) {
+      const pontosFaltando = 50 - pontos;
+      const mensagem = [
+        '❌ Pontos insuficientes!',
+        '',
+        `⭐ Seus pontos: ${pontos}`,
+        `🎯 Pontos necessários: 50`,
+        `📉 Faltam: ${pontosFaltando} pontos`,
+        '',
+        'Convide mais amigos para acumular pontos!',
+        'Use /referral para ver seu link de indicação.',
+      ].join('\n');
+
+      const botoes = Markup.inlineKeyboard([
+        [Markup.button.callback('Gerar link de indicação', 'gerar_referral')],
+        [Markup.button.callback('Ver meus pontos', 'ver_pontos')],
+        [Markup.button.callback('🔙 Início', 'start_menu')],
+      ]);
+
+      await ctx.editMessageText(mensagem, botoes);
+      return;
+    }
+
+    // Resgatar pontos
+    estadoAtual = resgatarPontos(estadoAtual, userId);
+
+    const mensagem = [
+      '🎉 Parabéns! Recompensa resgatada!',
+      '',
+      '✅ Você ganhou acesso gratuito ao plano!',
+      '🔗 Link de acesso: https://t.me/homemade3',
+      '',
+      'Obrigado por indicar seus amigos!',
+      'Continue compartilhando para ajudar outros usuários.',
+    ].join('\n');
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.url('Acessar conteúdo', 'https://t.me/homemade3')],
+      [Markup.button.callback('🔙 Início', 'start_menu')],
+    ]);
+
+    await ctx.editMessageText(mensagem, botoes);
   });
 
   bot.command('msg', async (ctx) => {
@@ -838,6 +1006,181 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     ctx.session = ctx.session || {};
     ctx.session.pixFoto = { etapa: 'aguardando_foto' };
     await ctx.reply('📸 Agora envie a foto que será usada junto com o texto do PIX.');
+  });
+
+  bot.command('limpar_pagamentos', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) {
+      await ctx.reply('❌ Comando restrito a administradores.');
+      return;
+    }
+
+    await ctx.reply('⏳ Buscando pagamentos pendentes no Asaas...');
+
+    try {
+      const pendingPayments = await paymentClient.getPendingPayments();
+
+      if (!pendingPayments.length) {
+        await ctx.reply('✅ Não há pagamentos pendentes no Asaas.');
+        return;
+      }
+
+      await ctx.reply(`📋 Encontrados ${pendingPayments.length} pagamentos pendentes. Iniciando exclusão...`);
+
+      let deletedCount = 0;
+      let failedCount = 0;
+
+      for (const payment of pendingPayments) {
+        const success = await paymentClient.deletePayment(payment.id);
+        if (success) {
+          deletedCount++;
+        } else {
+          failedCount++;
+        }
+      }
+
+      const mensagem = [
+        '🗑️ Limpeza concluída!',
+        `✅ Deletados: ${deletedCount}`,
+        `❌ Falhas: ${failedCount}`,
+        '',
+        'Nota: Os pagamentos locais pendentes no bot não foram afetados.',
+      ].join('\n');
+
+      await ctx.reply(mensagem);
+    } catch (error) {
+      console.error('Erro ao limpar pagamentos:', error);
+      await ctx.reply('❌ Erro ao limpar pagamentos. Verifique os logs.');
+    }
+  });
+
+  bot.command('referral', async (ctx) => {
+    await ctx.reply('⏳ Gerando seu link de indicação...');
+
+    const userId = ctx.from.id;
+    const dadosReferencia = obterDadosReferencia(estadoAtual, userId);
+
+    if (!dadosReferencia) {
+      await ctx.reply('❌ Não foi possível gerar seu código de referência. Tente novamente mais tarde.');
+      return;
+    }
+
+    const { referralCode: codigo, points: pontos, referredUsers: indicados } = dadosReferencia;
+    const botInfo = await ctx.telegram.getMe();
+    const botUsername = botInfo.username;
+    const referralLink = `https://t.me/${botUsername}?start=${codigo}`;
+
+    const mensagem = [
+      '🎉 Programa de Indicação!',
+      '',
+      'Convide seus amigos para ganhar pontos e resgatar recompensas!',
+      '',
+      `🔗 Seu link de indicação: ${referralLink}`,
+      '',
+      `📊 Seus pontos atuais: ${pontos}`,
+      `👥 Amigos indicados: ${indicados}`,
+      '',
+      '💡 Como funciona:',
+      '• Cada amigo que usar seu link ganha 10 pontos',
+      '• Com 50 pontos você ganha acesso gratuito!',
+      '',
+      'Compartilhe seu link e comece a ganhar!',
+    ].join('\n');
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.callback('Ver meus pontos', 'ver_pontos')],
+      [Markup.button.callback('Resgatar recompensa', 'resgatar_pontos')],
+      [Markup.button.callback('🔙 Início', 'start_menu')],
+    ]);
+
+    await ctx.reply(mensagem, botoes);
+  });
+
+  bot.command('pontos', async (ctx) => {
+    const userId = ctx.from.id;
+    const dadosReferencia = obterDadosReferencia(estadoAtual, userId);
+
+    if (!dadosReferencia) {
+      await ctx.reply('❌ Não foi possível obter seus dados de referência.');
+      return;
+    }
+
+    const { points: pontos, referredUsers: indicados } = dadosReferencia;
+
+    const mensagem = [
+      '📊 Seus Pontos de Indicação',
+      '',
+      `⭐ Pontos atuais: ${pontos}`,
+      `👥 Amigos indicados: ${indicados}`,
+      '',
+      '💡 Como ganhar pontos:',
+      '• Cada indicação = 10 pontos',
+      '• 50 pontos = Acesso gratuito!',
+      '',
+      'Use /referral para ver seu link de indicação.',
+    ].join('\n');
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.callback('Gerar link de indicação', 'gerar_referral')],
+      [Markup.button.callback('Resgatar recompensa', 'resgatar_pontos')],
+      [Markup.button.callback('🔙 Início', 'start_menu')],
+    ]);
+
+    await ctx.reply(mensagem, botoes);
+  });
+
+  bot.command('resgatar', async (ctx) => {
+    const userId = ctx.from.id;
+    const dadosReferencia = obterDadosReferencia(estadoAtual, userId);
+
+    if (!dadosReferencia) {
+      await ctx.reply('❌ Não foi possível verificar seus pontos.');
+      return;
+    }
+
+    const { pontos } = dadosReferencia;
+
+    if (pontos < 50) {
+      const pontosFaltando = 50 - pontos;
+      const mensagem = [
+        '❌ Pontos insuficientes!',
+        '',
+        `⭐ Seus pontos: ${pontos}`,
+        `🎯 Pontos necessários: 50`,
+        `📉 Faltam: ${pontosFaltando} pontos`,
+        '',
+        'Convide mais amigos para acumular pontos!',
+        'Use /referral para ver seu link de indicação.',
+      ].join('\n');
+
+      const botoes = Markup.inlineKeyboard([
+        [Markup.button.callback('Gerar link de indicação', 'gerar_referral')],
+        [Markup.button.callback('Ver meus pontos', 'ver_pontos')],
+        [Markup.button.callback('🔙 Início', 'start_menu')],
+      ]);
+
+      await ctx.reply(mensagem, botoes);
+      return;
+    }
+
+    // Resgatar pontos
+    estadoAtual = resgatarPontos(estadoAtual, userId);
+
+    const mensagem = [
+      '🎉 Parabéns! Recompensa resgatada!',
+      '',
+      '✅ Você ganhou acesso gratuito ao plano!',
+      '🔗 Link de acesso: https://t.me/homemade3',
+      '',
+      'Obrigado por indicar seus amigos!',
+      'Continue compartilhando para ajudar outros usuários.',
+    ].join('\n');
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.url('Acessar conteúdo', 'https://t.me/homemade3')],
+      [Markup.button.callback('🔙 Início', 'start_menu')],
+    ]);
+
+    await ctx.reply(mensagem, botoes);
   });
 
   const processarVideoInicio = async (ctx, midia) => {

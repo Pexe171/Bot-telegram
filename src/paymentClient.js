@@ -121,6 +121,33 @@ class PaymentClient {
       return null;
     }
   }
+
+  async getPendingPayments() {
+    try {
+      const { data } = await this.http.get('/payments', {
+        params: {
+          status: 'PENDING',
+          limit: 100, // Adjust limit as needed
+        },
+      });
+      return data.data || []; // Asaas returns { data: [...] }
+    } catch (error) {
+      const reason = error.response?.data || error.message;
+      console.error('[PaymentClient] Erro ao buscar pagamentos pendentes:', reason);
+      return [];
+    }
+  }
+
+  async deletePayment(paymentId) {
+    try {
+      await this.http.delete(`/payments/${paymentId}`);
+      return true;
+    } catch (error) {
+      const reason = error.response?.data || error.message;
+      console.error(`[PaymentClient] Erro ao deletar pagamento ${paymentId}:`, reason);
+      return false;
+    }
+  }
 }
 
 module.exports = { PaymentClient };

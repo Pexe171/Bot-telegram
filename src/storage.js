@@ -24,6 +24,7 @@ const DEFAULT_STATE = {
   pendingPayments: [], // {qrCodeId, userId, produto, timestamp, checkCount}
   promotions: [], // {id, name, value, link, createdAt}
   pixPhoto: null, // {arquivoId: string, tipo: 'photo'}
+  referrals: {}, // {userId: {points: number, referredUsers: [userId], referralCode: string}}
 };
 
 function garantirDiretorio() {
@@ -49,6 +50,7 @@ function normalizarEstado(rawState) {
   const pendingPayments = estado.pendingPayments || [];
   const promotions = estado.promotions || [];
   const pixPhoto = estado.pixPhoto || null;
+  const referrals = estado.referrals || {};
 
   return {
     mensagemInicio,
@@ -56,6 +58,7 @@ function normalizarEstado(rawState) {
     pendingPayments,
     promotions,
     pixPhoto,
+    referrals,
   };
 }
 
@@ -165,6 +168,81 @@ function salvarPixPhoto(estadoAtual, pixPhoto) {
   return salvarEstado(estado);
 }
 
+// Referral functions
+function obterDadosReferencia(estadoAtual, userId) {
+  const estado = normalizarEstado(estadoAtual);
+  return estado.referrals[userId] || { points: 0, referredUsers: [], referralCode: null };
+}
+
+function gerarCodigoReferencia(userId) {
+  return userId.toString();
+}
+
+function criarOuObterCodigoReferencia(estadoAtual, userId) {
+  const estado = normalizarEstado(estadoAtual);
+  const userIdStr = userId.toString();
+
+  if (!estado.referrals[userIdStr]) {
+    estado.referrals[userIdStr] = {
+      points: 0,
+      referredUsers: [],
+      referralCode: gerarCodigoReferencia(userId),
+    };
+  }
+
+  return salvarEstado(estado);
+}
+
+function registrarReferencia(estadoAtual, referrerCode, newUserId) {
+  const estado = normalizarEstado(estadoAtual);
+
+  // Find referrer by code
+  let referrerId = null;
+  for (const [userId, data] of Object.entries(estado.referrals)) {
+    if (data.referralCode === referrerCode) {
+      referrerId = userId;
+      break;
+    }
+  }
+
+  if (!referrerId) return estado; // No referrer found
+
+  const referrerData = estado.referrals[referrerId];
+  if (!referrerData.referredUsers.includes(newUserId)) {
+    referrerData.referredUsers.push(newUserId);
+  }
+
+  return salvarEstado(estado);
+}
+
+function adicionarPontosReferencia(estadoAtual, userId, points) {
+  const estado = normalizarEstado(estadoAtual);
+  const userIdStr = userId.toString();
+
+  if (!estado.referrals[userIdStr]) {
+    estado.referrals[userIdStr] = {
+      points: 0,
+      referredUsers: [],
+      referralCode: gerarCodigoReferencia(userId),
+    };
+  }
+
+  estado.referrals[userIdStr].points += points;
+  return salvarEstado(estado);
+}
+
+function resgatarPontos(estadoAtual, userId, pointsToRedeem) {
+  const estado = normalizarEstado(estadoAtual);
+  const userIdStr = userId.toString();
+
+  if (!estado.referrals[userIdStr] || estado.referrals[userIdStr].points < pointsToRedeem) {
+    return estado; // Not enough points
+  }
+
+  estado.referrals[userIdStr].points -= pointsToRedeem;
+  return salvarEstado(estado);
+}
+
 module.exports = {
   carregarEstado,
   salvarMensagemInicio,
@@ -176,5 +254,10 @@ module.exports = {
   incrementarCheckCount,
   adicionarPromocao,
   limparPromocoesExpiradas,
+  obterDadosReferencia,
+  criarOuObterCodigoReferencia,
+  registrarReferencia,
+  adicionarPontosReferencia,
+  resgatarPontos,
   DEFAULT_WELCOME_MESSAGE,
 };
