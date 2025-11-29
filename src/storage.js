@@ -22,6 +22,7 @@ const DEFAULT_STATE = {
     totalMensagens: 0,
   },
   pendingPayments: [], // {qrCodeId, userId, produto, timestamp, checkCount}
+  promotions: [], // {id, name, value, link, createdAt}
 };
 
 function garantirDiretorio() {
@@ -45,11 +46,13 @@ function normalizarEstado(rawState) {
   };
 
   const pendingPayments = estado.pendingPayments || [];
+  const promotions = estado.promotions || [];
 
   return {
     mensagemInicio,
     metricas,
     pendingPayments,
+    promotions,
   };
 }
 
@@ -132,6 +135,27 @@ function incrementarCheckCount(estadoAtual, qrCodeId) {
   return salvarEstado(estado);
 }
 
+function adicionarPromocao(estadoAtual, id, name, value, link) {
+  const estado = normalizarEstado(estadoAtual);
+  estado.promotions = estado.promotions || [];
+  estado.promotions.push({
+    id,
+    name,
+    value,
+    link,
+    createdAt: Date.now(),
+  });
+  return salvarEstado(estado);
+}
+
+function limparPromocoesExpiradas(estadoAtual) {
+  const estado = normalizarEstado(estadoAtual);
+  const agora = Date.now();
+  const seisHoras = 6 * 60 * 60 * 1000; // 6 horas em milissegundos
+  estado.promotions = estado.promotions.filter(p => (agora - p.createdAt) < seisHoras);
+  return salvarEstado(estado);
+}
+
 module.exports = {
   carregarEstado,
   salvarMensagemInicio,
@@ -140,5 +164,7 @@ module.exports = {
   removerPagamentoPendente,
   obterPagamentosPendentes,
   incrementarCheckCount,
+  adicionarPromocao,
+  limparPromocoesExpiradas,
   DEFAULT_WELCOME_MESSAGE,
 };

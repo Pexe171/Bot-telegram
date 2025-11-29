@@ -2,7 +2,7 @@ const { Telegraf, Markup, session } = require('telegraf');
 const { loadSettings } = require('./config');
 const { PaymentClient } = require('./paymentClient');
 const { obterProduto } = require('./products');
-const { carregarEstado, salvarMensagemInicio, registrarInteracao, adicionarPagamentoPendente, removerPagamentoPendente, obterPagamentosPendentes, incrementarCheckCount } = require('./storage');
+const { carregarEstado, salvarMensagemInicio, registrarInteracao, adicionarPagamentoPendente, removerPagamentoPendente, obterPagamentosPendentes, incrementarCheckCount, adicionarPromocao, limparPromocoesExpiradas } = require('./storage');
 const fs = require('fs');
 const path = require('path');
 
@@ -168,6 +168,11 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
 
   // Start automatic verification every 5 seconds
   setInterval(verificarPagamentosAutomaticamente, 5000);
+
+  // Clean up expired promotions every hour
+  setInterval(() => {
+    estadoAtual = limparPromocoesExpiradas(estadoAtual);
+  }, 60 * 60 * 1000); // 1 hour
 
   const enviarPainelAdmin = async (ctx) => {
     if (!isAdmin(ctx.from.id)) return;
@@ -429,12 +434,29 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     let botoes;
 
     if (statusPagamento.status === 'RECEIVED' || statusPagamento.status === 'CONFIRMED') {
+      // Verificar se é o plano padrão ou promoção
+      const pagamentoPendente = estadoAtual.pendingPayments.find(p => p.qrCodeId === qrCodeId);
+      const isPlanoPadrao = pagamentoPendente && pagamentoPendente.produto && pagamentoPendente.produto.codigo === 'assinatura';
+      const isPromocao = pagamentoPendente && pagamentoPendente.produto && pagamentoPendente.produto.codigo === 'promocao';
+
+      let linkAcesso = '';
+      if (isPlanoPadrao) {
+        linkAcesso = '🔗 Link de acesso: https://t.me/homemade3';
+      } else if (isPromocao && ctx.session.promocaoId) {
+        // Buscar a promoção e liberar o link
+        const promocao = estadoAtual.promotions.find(p => p.id === ctx.session.promocaoId);
+        if (promocao) {
+          linkAcesso = `🔗 Link de acesso: ${promocao.link}`;
+        }
+      }
+
       mensagemStatus = [
         '🎉 Pagamento confirmado!',
         `💰 Valor pago: R$ ${statusPagamento.value.toFixed(2)}`,
         `📅 Data do pagamento: ${new Date(statusPagamento.paymentDate).toLocaleDateString('pt-BR')}`,
         '',
-        '✅ Seu acesso foi liberado! Você receberá as instruções em breve.',
+        '✅ Seu acesso foi liberado!',
+        linkAcesso || 'Você receberá as instruções em breve.',
         '',
         '📞 Em caso de dúvidas, entre em contato com o suporte.',
       ].join('\n');
@@ -468,6 +490,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       ctx.session.qrCodeId = undefined;
       ctx.session.produtoCodigo = undefined;
       ctx.session.produtoPromocional = undefined;
+      ctx.session.promocaoId = undefined;
 
     } else if (statusPagamento.status === 'PENDING') {
       mensagemStatus = [
@@ -506,27 +529,28 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
 
   bot.action(/^promocao:(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
-    const valor = Number(ctx.match[1]);
+    const promocaoId = ctx.match[1];
 
-    if (Number.isNaN(valor) || valor <= 0) {
-      await ctx.editMessageText('❌ Promoção inválida. Tente novamente mais tarde.');
+    // Buscar a promoção no estado
+    const promocao = estadoAtual.promotions.find(p => p.id === promocaoId);
+
+    if (!promocao) {
+      await ctx.editMessageText('❌ Promoção não encontrada ou expirada. Tente novamente mais tarde.');
       return;
     }
 
-    // Recuperar o nome da promoção da sessão (armazenado quando a promoção foi enviada)
-    const nomePromocao = ctx.session?.nomePromocao || 'PROMOÇÃO ESPECIAL';
-
-    // Criar produto promocional com o preço informado e nome da promoção
+    // Criar produto promocional baseado na promoção armazenada
     const produtoPromocional = {
       codigo: 'promocao',
-      nome: nomePromocao,
+      nome: promocao.name,
       descricao: 'Acesso vitalício ao conteúdo com todos os bônus inclusos - PREÇO PROMOCIONAL!',
-      preco: valor,
+      preco: promocao.value,
     };
 
     ctx.session = ctx.session || {};
     ctx.session.produtoCodigo = produtoPromocional.codigo;
     ctx.session.produtoPromocional = produtoPromocional;
+    ctx.session.promocaoId = promocaoId; // Armazenar o ID da promoção para liberar o link após pagamento
 
     const mensagem = [
       `🎉 Você escolheu a promoção ${produtoPromocional.nome} (R$ ${produtoPromocional.preco.toFixed(2)}).`,
@@ -644,7 +668,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     await iniciarFluxoPromocao(ctx);
   });
 
-  const enviarPromocaoParaTodos = async (ctx, corpo, valor) => {
+  const enviarPromocaoParaTodos = async (ctx, corpo, valor, linkTexto) => {
     const usuarios = estadoAtual.metricas.usuarios;
 
     if (!usuarios.length) {
@@ -652,16 +676,23 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       return;
     }
 
+    // Gerar ID único para a promoção
+    const promocaoId = `promo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Armazenar a promoção no estado
+    estadoAtual = adicionarPromocao(estadoAtual, promocaoId, corpo.texto, valor, linkTexto);
+
     const mensagem = [
       '🚀 Promoção especial para você!',
       `Promoção: ${corpo.texto}`,
       '',
       `💰 Valor promocional: R$ ${valor.toFixed(2)}`,
+      '',
       'Clique no botão abaixo para aproveitar.',
     ].join('\n');
 
     const botoes = Markup.inlineKeyboard([
-      [Markup.button.callback(`Ver assinatura R$ ${valor.toFixed(2)}`, `promocao:${valor}`)],
+      [Markup.button.callback(`Ver assinatura R$ ${valor.toFixed(2)}`, `promocao:${promocaoId}`)],
       [Markup.button.url('Falar com suporte', suporteUrl)],
     ]);
 
@@ -823,10 +854,29 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
             return;
           }
 
+          ctx.session.promocao = {
+            etapa: 'link',
+            corpo: ctx.session.promocao.corpo,
+            valor: valor,
+          };
+
+          await ctx.reply('🔗 Qual é o link do plano da promoção? Envie o link completo (ex: https://t.me/exemplo).');
+          return;
+        }
+
+        if (etapa === 'link') {
+          const linkTexto = extrairTextoLivre(ctx.message).trim();
+
+          if (!linkTexto || !linkTexto.startsWith('http')) {
+            await ctx.reply('Por favor, envie um link válido começando com http ou https.');
+            return;
+          }
+
           const corpo = ctx.session.promocao.corpo;
+          const valor = ctx.session.promocao.valor;
           ctx.session.promocao = undefined;
 
-          await enviarPromocaoParaTodos(ctx, corpo, valor);
+          await enviarPromocaoParaTodos(ctx, corpo, valor, linkTexto);
           return;
         }
       }
