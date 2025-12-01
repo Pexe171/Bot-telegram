@@ -119,7 +119,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
 
       try {
         // Increment check count
-        estadoAtual = incrementarCheckCount(estadoAtual, pagamento.qrCodeId);
+        estadoAtual = await incrementarCheckCount(estadoAtual, pagamento.qrCodeId);
         const pagamentoAtualizado = estadoAtual.pendingPayments.find(p => p.qrCodeId === pagamento.qrCodeId);
 
         if (!pagamentoAtualizado) continue;
@@ -352,7 +352,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     ctx.session = ctx.session || {};
 
     if (ctx.chat?.type === 'private' && ctx.from?.id) {
-      estadoAtual = registrarInteracao(estadoAtual, ctx.from.id);
+      estadoAtual = await registrarInteracao(estadoAtual, ctx.from.id);
     }
     return next();
   });
@@ -366,10 +366,10 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
       const newUserId = ctx.from.id;
 
       // Register the referral
-      estadoAtual = registrarReferencia(estadoAtual, referrerCode, newUserId);
+      estadoAtual = await registrarReferencia(estadoAtual, referrerCode, newUserId);
 
       // Award points to referrer
-      estadoAtual = adicionarPontosReferencia(estadoAtual, referrerCode, 10);
+      estadoAtual = await adicionarPontosReferencia(estadoAtual, referrerCode, 10);
 
       // Send welcome message with referral info
       await ctx.reply('🎉 Bem-vindo! Você foi indicado por um amigo e ganhou acesso especial!');
@@ -446,7 +446,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     ctx.session.qrCodeId = dadosPagamento.qrCodeId;
 
     // Add to pending payments for automatic verification
-    estadoAtual = adicionarPagamentoPendente(estadoAtual, dadosPagamento.qrCodeId, ctx.from.id, produto);
+    estadoAtual = await adicionarPagamentoPendente(estadoAtual, dadosPagamento.qrCodeId, ctx.from.id, produto);
 
     const texto = [
       '🌟 Você selecionou o seguinte plano:',

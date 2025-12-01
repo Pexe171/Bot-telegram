@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -62,7 +62,7 @@ function normalizarEstado(rawState) {
   };
 }
 
-function carregarEstado() {
+async function carregarEstado() {
   garantirDiretorio();
 
   if (!fs.existsSync(STORAGE_FILE)) {
@@ -70,7 +70,7 @@ function carregarEstado() {
   }
 
   try {
-    const raw = fs.readFileSync(STORAGE_FILE, 'utf8');
+    const raw = await fs.readFile(STORAGE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     return normalizarEstado(parsed);
   } catch (error) {
@@ -79,22 +79,22 @@ function carregarEstado() {
   }
 }
 
-function salvarEstado(estado) {
+async function salvarEstado(estado) {
   garantirDiretorio();
   const normalizado = normalizarEstado(estado);
-  fs.writeFileSync(STORAGE_FILE, JSON.stringify(normalizado, null, 2), 'utf8');
+  await fs.writeFile(STORAGE_FILE, JSON.stringify(normalizado, null, 2), 'utf8');
   return normalizado;
 }
 
-function salvarMensagemInicio(estadoAtual, mensagemInicio) {
-  const novoEstado = salvarEstado({
+async function salvarMensagemInicio(estadoAtual, mensagemInicio) {
+  const novoEstado = await salvarEstado({
     ...estadoAtual,
     mensagemInicio,
   });
   return novoEstado;
 }
 
-function registrarInteracao(estadoAtual, userId) {
+async function registrarInteracao(estadoAtual, userId) {
   const estado = normalizarEstado(estadoAtual);
   const id = Number(userId);
 
@@ -104,10 +104,10 @@ function registrarInteracao(estadoAtual, userId) {
 
   estado.metricas.totalMensagens += 1;
 
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function adicionarPagamentoPendente(estadoAtual, qrCodeId, userId, produto) {
+async function adicionarPagamentoPendente(estadoAtual, qrCodeId, userId, produto) {
   const estado = normalizarEstado(estadoAtual);
   estado.pendingPayments = estado.pendingPayments || [];
   estado.pendingPayments.push({
@@ -117,14 +117,14 @@ function adicionarPagamentoPendente(estadoAtual, qrCodeId, userId, produto) {
     timestamp: Date.now(),
     checkCount: 0,
   });
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function removerPagamentoPendente(estadoAtual, qrCodeId) {
+async function removerPagamentoPendente(estadoAtual, qrCodeId) {
   const estado = normalizarEstado(estadoAtual);
   estado.pendingPayments = estado.pendingPayments || [];
   estado.pendingPayments = estado.pendingPayments.filter(p => p.qrCodeId !== qrCodeId);
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
 function obterPagamentosPendentes(estadoAtual) {
@@ -132,16 +132,16 @@ function obterPagamentosPendentes(estadoAtual) {
   return estado.pendingPayments || [];
 }
 
-function incrementarCheckCount(estadoAtual, qrCodeId) {
+async function incrementarCheckCount(estadoAtual, qrCodeId) {
   const estado = normalizarEstado(estadoAtual);
   const pagamento = estado.pendingPayments.find(p => p.qrCodeId === qrCodeId);
   if (pagamento) {
     pagamento.checkCount += 1;
   }
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function adicionarPromocao(estadoAtual, id, name, value, link) {
+async function adicionarPromocao(estadoAtual, id, name, value, link) {
   const estado = normalizarEstado(estadoAtual);
   estado.promotions = estado.promotions || [];
   estado.promotions.push({
@@ -151,21 +151,21 @@ function adicionarPromocao(estadoAtual, id, name, value, link) {
     link,
     createdAt: Date.now(),
   });
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function limparPromocoesExpiradas(estadoAtual) {
+async function limparPromocoesExpiradas(estadoAtual) {
   const estado = normalizarEstado(estadoAtual);
   const agora = Date.now();
   const seisHoras = 6 * 60 * 60 * 1000; // 6 horas em milissegundos
   estado.promotions = estado.promotions.filter(p => (agora - p.createdAt) < seisHoras);
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function salvarPixPhoto(estadoAtual, pixPhoto) {
+async function salvarPixPhoto(estadoAtual, pixPhoto) {
   const estado = normalizarEstado(estadoAtual);
   estado.pixPhoto = pixPhoto;
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
 // Referral functions
@@ -178,7 +178,7 @@ function gerarCodigoReferencia(userId) {
   return userId.toString();
 }
 
-function criarOuObterCodigoReferencia(estadoAtual, userId) {
+async function criarOuObterCodigoReferencia(estadoAtual, userId) {
   const estado = normalizarEstado(estadoAtual);
   const userIdStr = userId.toString();
 
@@ -190,10 +190,10 @@ function criarOuObterCodigoReferencia(estadoAtual, userId) {
     };
   }
 
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function registrarReferencia(estadoAtual, referrerCode, newUserId) {
+async function registrarReferencia(estadoAtual, referrerCode, newUserId) {
   const estado = normalizarEstado(estadoAtual);
 
   // Find referrer by code
@@ -212,10 +212,10 @@ function registrarReferencia(estadoAtual, referrerCode, newUserId) {
     referrerData.referredUsers.push(newUserId);
   }
 
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function adicionarPontosReferencia(estadoAtual, userId, points) {
+async function adicionarPontosReferencia(estadoAtual, userId, points) {
   const estado = normalizarEstado(estadoAtual);
   const userIdStr = userId.toString();
 
@@ -228,10 +228,10 @@ function adicionarPontosReferencia(estadoAtual, userId, points) {
   }
 
   estado.referrals[userIdStr].points += points;
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
-function resgatarPontos(estadoAtual, userId, pointsToRedeem) {
+async function resgatarPontos(estadoAtual, userId, pointsToRedeem) {
   const estado = normalizarEstado(estadoAtual);
   const userIdStr = userId.toString();
 
@@ -240,7 +240,7 @@ function resgatarPontos(estadoAtual, userId, pointsToRedeem) {
   }
 
   estado.referrals[userIdStr].points -= pointsToRedeem;
-  return salvarEstado(estado);
+  return await salvarEstado(estado);
 }
 
 module.exports = {
