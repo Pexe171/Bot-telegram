@@ -61,6 +61,45 @@ function textoTemTamanhoMinimo(texto, minimo = 10) {
   return typeof texto === 'string' && texto.trim().length >= minimo;
 }
 
+// Helper function to safely send messages, handling blocked users and invalid chats
+async function enviarMensagemSegura(bot, chatId, texto, opcoes = {}) {
+  try {
+    return await bot.telegram.sendMessage(chatId, texto, opcoes);
+  } catch (error) {
+    if (error.response?.error_code === 403 || (error.response?.error_code === 400 && error.response?.description?.includes('chat not found'))) {
+      console.log(`Chat ${chatId} não encontrado ou usuário bloqueou o bot. Removendo da lista de usuários ativos.`);
+      return null;
+    }
+    throw error; // Re-throw other errors
+  }
+}
+
+// Helper function to safely send photos, handling blocked users and invalid chats
+async function enviarFotoSegura(bot, chatId, arquivoId, opcoes = {}) {
+  try {
+    return await bot.telegram.sendPhoto(chatId, arquivoId, opcoes);
+  } catch (error) {
+    if (error.response?.error_code === 403 || (error.response?.error_code === 400 && error.response?.description?.includes('chat not found'))) {
+      console.log(`Chat ${chatId} não encontrado ou usuário bloqueou o bot. Removendo da lista de usuários ativos.`);
+      return null;
+    }
+    throw error; // Re-throw other errors
+  }
+}
+
+// Helper function to safely send videos, handling blocked users and invalid chats
+async function enviarVideoSeguro(bot, chatId, arquivoIdOuStream, opcoes = {}) {
+  try {
+    return await bot.telegram.sendVideo(chatId, arquivoIdOuStream, opcoes);
+  } catch (error) {
+    if (error.response?.error_code === 403 || (error.response?.error_code === 400 && error.response?.description?.includes('chat not found'))) {
+      console.log(`Chat ${chatId} não encontrado ou usuário bloqueou o bot. Removendo da lista de usuários ativos.`);
+      return null;
+    }
+    throw error; // Re-throw other errors
+  }
+}
+
 async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
   let estadoAtual = estadoInicial;
   let mensagemInicio = estadoAtual.mensagemInicio;
@@ -106,13 +145,13 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
 
           try {
             if (estadoAtual.pixPhoto?.arquivoId) {
-              await bot.telegram.sendPhoto(pagamento.userId, estadoAtual.pixPhoto.arquivoId, {
+              await enviarFotoSegura(bot, pagamento.userId, estadoAtual.pixPhoto.arquivoId, {
                 caption: mensagemConfirmacao,
                 parse_mode: 'HTML',
                 ...botoes,
               });
             } else {
-              await bot.telegram.sendMessage(pagamento.userId, mensagemConfirmacao, botoes);
+              await enviarMensagemSegura(bot, pagamento.userId, mensagemConfirmacao, botoes);
             }
           } catch (error) {
             console.error(`Erro ao notificar usuário ${pagamento.userId}:`, error);
@@ -131,7 +170,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
 
           adminIds.forEach(async (adminId) => {
             try {
-              await bot.telegram.sendMessage(adminId, notificacaoAdmin);
+              await enviarMensagemSegura(bot, adminId, notificacaoAdmin);
             } catch (error) {
               console.error(`Erro ao notificar admin ${adminId}:`, error);
             }
@@ -160,7 +199,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
           ]);
 
           try {
-            await bot.telegram.sendMessage(pagamento.userId, mensagemExpirado, botoes);
+            await enviarMensagemSegura(bot, pagamento.userId, mensagemExpirado, botoes);
           } catch (error) {
             console.error(`Erro ao notificar usuário ${pagamento.userId} sobre expiração:`, error);
           }
@@ -200,20 +239,38 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     const videoLocalExiste = mensagemInicio.tipo === 'video_local' && mensagemInicio.arquivoPath && fs.existsSync(mensagemInicio.arquivoPath);
 
     if (mensagemInicio.tipo === 'photo' && mensagemInicio.arquivoId) {
-      await ctx.replyWithPhoto(mensagemInicio.arquivoId, {
-        caption: mensagemInicio.texto,
-        parse_mode: 'HTML',
-        ...botoes,
-      });
+      try {
+        await ctx.replyWithPhoto(mensagemInicio.arquivoId, {
+          caption: mensagemInicio.texto,
+          parse_mode: 'HTML',
+          ...botoes,
+        });
+      } catch (error) {
+        if (error.response?.error_code === 403) {
+          console.log(`Usuário ${ctx.from.id} bloqueou o bot. Removendo da lista de usuários ativos.`);
+          estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== ctx.from.id);
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
     if (mensagemInicio.tipo === 'video' && mensagemInicio.arquivoId) {
-      await ctx.replyWithVideo(mensagemInicio.arquivoId, {
-        caption: mensagemInicio.texto,
-        parse_mode: 'HTML',
-        ...botoes,
-      });
+      try {
+        await ctx.replyWithVideo(mensagemInicio.arquivoId, {
+          caption: mensagemInicio.texto,
+          parse_mode: 'HTML',
+          ...botoes,
+        });
+      } catch (error) {
+        if (error.response?.error_code === 403) {
+          console.log(`Usuário ${ctx.from.id} bloqueou o bot. Removendo da lista de usuários ativos.`);
+          estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== ctx.from.id);
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
@@ -228,11 +285,34 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
         });
       } catch (error) {
         console.error('Erro ao enviar vídeo local:', error);
+        if (error.response?.error_code === 403) {
+          console.log(`Usuário ${ctx.from.id} bloqueou o bot. Removendo da lista de usuários ativos.`);
+          estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== ctx.from.id);
+          return;
+        }
         // Fallback para texto se o vídeo não puder ser enviado
         if (viaCallback && ctx.callbackQuery?.message?.message_id) {
-          await ctx.editMessageText(mensagemInicio.texto, botoes);
+          try {
+            await ctx.editMessageText(mensagemInicio.texto, botoes);
+          } catch (editError) {
+            if (editError.response?.error_code === 403) {
+              console.log(`Usuário ${ctx.from.id} bloqueou o bot. Removendo da lista de usuários ativos.`);
+              estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== ctx.from.id);
+              return;
+            }
+            throw editError;
+          }
         } else {
-          await ctx.reply(mensagemInicio.texto, botoes);
+          try {
+            await ctx.reply(mensagemInicio.texto, botoes);
+          } catch (replyError) {
+            if (replyError.response?.error_code === 403) {
+              console.log(`Usuário ${ctx.from.id} bloqueou o bot. Removendo da lista de usuários ativos.`);
+              estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== ctx.from.id);
+              return;
+            }
+            throw replyError;
+          }
         }
       }
       return;
@@ -243,9 +323,27 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     }
 
     if (viaCallback && ctx.callbackQuery?.message?.message_id) {
-      await ctx.editMessageText(mensagemInicio.texto, botoes);
+      try {
+        await ctx.editMessageText(mensagemInicio.texto, botoes);
+      } catch (error) {
+        if (error.response?.error_code === 403) {
+          console.log(`Usuário ${ctx.from.id} bloqueou o bot. Removendo da lista de usuários ativos.`);
+          estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== ctx.from.id);
+          return;
+        }
+        throw error;
+      }
     } else {
-      await ctx.reply(mensagemInicio.texto, botoes);
+      try {
+        await ctx.reply(mensagemInicio.texto, botoes);
+      } catch (error) {
+        if (error.response?.error_code === 403) {
+          console.log(`Usuário ${ctx.from.id} bloqueou o bot. Removendo da lista de usuários ativos.`);
+          estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== ctx.from.id);
+          return;
+        }
+        throw error;
+      }
     }
   };
 
@@ -560,7 +658,7 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
 
       adminIds.forEach(async (adminId) => {
         try {
-          await bot.telegram.sendMessage(adminId, notificacaoAdmin);
+          await enviarMensagemSegura(bot, adminId, notificacaoAdmin);
         } catch (error) {
           console.error(`Erro ao notificar admin ${adminId}:`, error);
         }
@@ -902,49 +1000,6 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
     await iniciarFluxoPromocao(ctx);
   });
 
-  const enviarPromocaoParaTodos = async (ctx, corpo, valor, linkTexto) => {
-    const usuarios = estadoAtual.metricas.usuarios;
-
-    if (!usuarios.length) {
-      await ctx.reply('Não há usuários registrados ainda para receber a promoção.');
-      return;
-    }
-
-    // Gerar ID único para a promoção
-    const promocaoId = `promo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    // Armazenar a promoção no estado
-    estadoAtual = adicionarPromocao(estadoAtual, promocaoId, corpo.texto, valor, linkTexto);
-
-    const mensagem = [
-      '🚀 Promoção especial para você!',
-      `Promoção: ${corpo.texto}`,
-      '',
-      `💰 Valor promocional: R$ ${valor.toFixed(2)}`,
-      '',
-      'Clique no botão abaixo para aproveitar.',
-    ].join('\n');
-
-    const botoes = Markup.inlineKeyboard([
-      [Markup.button.callback(`Ver assinatura R$ ${valor.toFixed(2)}`, `promocao:${promocaoId}`)],
-      [Markup.button.url('Falar com suporte', suporteUrl)],
-    ]);
-
-    // Armazenar o nome da promoção na sessão do admin para uso posterior
-    ctx.session = ctx.session || {};
-    ctx.session.nomePromocao = corpo.texto;
-
-    for (const chatId of usuarios) {
-      try {
-        await bot.telegram.sendMessage(chatId, mensagem, botoes);
-      } catch (error) {
-        console.error(`Erro ao enviar promoção para ${chatId}:`, error);
-      }
-    }
-
-    await ctx.reply(`✅ Promoção enviada para ${usuarios.length} usuário(s).`);
-  };
-
   bot.action('admin_testar', async (ctx) => {
     if (!isAdmin(ctx.from.id)) {
       await ctx.answerCbQuery('⚠️ Somente administradores.');
@@ -1182,6 +1237,49 @@ async function registrarHandlers(bot, paymentClient, settings, estadoInicial) {
 
     await ctx.reply(mensagem, botoes);
   });
+
+  const enviarPromocaoParaTodos = async (ctx, corpo, valor, linkTexto) => {
+    const usuarios = estadoAtual.metricas.usuarios;
+
+    if (!usuarios.length) {
+      await ctx.reply('Não há usuários registrados ainda para receber a promoção.');
+      return;
+    }
+
+    // Gerar ID único para a promoção
+    const promocaoId = `promo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Armazenar a promoção no estado
+    estadoAtual = adicionarPromocao(estadoAtual, promocaoId, corpo.texto, valor, linkTexto);
+
+    const mensagem = [
+      '🚀 Promoção especial para você!',
+      `Promoção: ${corpo.texto}`,
+      '',
+      `💰 Valor promocional: R$ ${valor.toFixed(2)}`,
+      '',
+      'Clique no botão abaixo para aproveitar.',
+    ].join('\n');
+
+    const botoes = Markup.inlineKeyboard([
+      [Markup.button.callback(`Ver assinatura R$ ${valor.toFixed(2)}`, `promocao:${promocaoId}`)],
+      [Markup.button.url('Falar com suporte', suporteUrl)],
+    ]);
+
+    // Armazenar o nome da promoção na sessão do admin para uso posterior
+    ctx.session = ctx.session || {};
+    ctx.session.nomePromocao = corpo.texto;
+
+    for (const chatId of usuarios) {
+      const result = await enviarMensagemSegura(bot, chatId, mensagem, botoes);
+      if (result === null) {
+        // Usuário bloqueou o bot, remover da lista
+        estadoAtual.metricas.usuarios = estadoAtual.metricas.usuarios.filter(id => id !== chatId);
+      }
+    }
+
+    await ctx.reply(`✅ Promoção enviada para ${usuarios.length} usuário(s).`);
+  };
 
   const processarVideoInicio = async (ctx, midia) => {
     await ctx.reply('⏳ Baixando vídeo...');
